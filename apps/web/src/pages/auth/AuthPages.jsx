@@ -15,7 +15,7 @@ import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/comp
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle, EmptyContent } from "@/components/ui/empty"
 import { useAuth } from "@/store/auth"
 import { AuthHeading, PasswordInput, PasswordStrength } from "@/components/layout/AuthLayout"
-import { AlertCircleIcon, ArrowLeftIcon, CheckCircle2Icon, KeyRoundIcon, MailCheckIcon, ShieldCheckIcon, SparklesIcon } from "lucide-react"
+import { AlertCircleIcon, ArrowLeftIcon, CheckCircle2Icon, MailCheckIcon, ShieldCheckIcon } from "lucide-react"
 
 const email = z.string().trim().min(1, "Email is required").email("Enter a valid email address")
 const password = z.string().min(8, "At least 8 characters").regex(/[A-Z]/, "Add an uppercase letter").regex(/[0-9]/, "Add a number")
@@ -58,7 +58,7 @@ const OAUTH_ERRORS = {
 }
 
 export function LoginPage() {
-  const { login, demo, resendCode } = useAuth()
+  const { login, resendCode } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [params, setParams] = useSearchParams()
@@ -126,19 +126,6 @@ export function LoginPage() {
           />
           <Button type="submit" className="w-full" disabled={isSubmitting}>
             {isSubmitting && <Spinner data-icon="inline-start" />} Sign in
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full"
-            disabled={isSubmitting}
-            onClick={() => {
-              form.setValue("email", demo.email)
-              form.setValue("password", demo.password)
-              form.handleSubmit(submit)()
-            }}
-          >
-            <SparklesIcon data-icon="inline-start" /> Try the demo account
           </Button>
         </FieldGroup>
       </form>
@@ -323,7 +310,7 @@ export function ForgotPasswordPage() {
 
   const submit = async (values) => {
     const res = await requestPasswordReset(values)
-    setSent({ email: values.email, token: res?.devToken ?? null })
+    setSent({ email: values.email })
   }
 
   if (sent) {
@@ -339,11 +326,6 @@ export function ForgotPasswordPage() {
           </EmptyDescription>
         </EmptyHeader>
         <EmptyContent className="items-stretch">
-          {sent.token && (
-            <Button render={<Link to={`/reset-password?token=${sent.token}`} />}>
-              <KeyRoundIcon data-icon="inline-start" /> Open reset link (dev)
-            </Button>
-          )}
           <Button variant="ghost" onClick={() => setSent(null)}>
             Didn't get it? Try another email
           </Button>

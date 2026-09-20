@@ -4,9 +4,6 @@ import { api, tokenStore, refreshSession, API_URL } from "@/lib/api"
 
 const AuthContext = React.createContext(null)
 
-// Demo credentials match apps/api/src/db/seed.ts
-const DEMO = { email: "nadia.putri@student.univ.ac.id", password: "welya123" }
-
 export function AuthProvider({ children }) {
   const queryClient = useQueryClient()
   const [token, setToken] = React.useState(null)
@@ -82,7 +79,7 @@ export function AuthProvider({ children }) {
   }
 
   const value = React.useMemo(
-    () => ({ session: user, user, token, ready, isAuthenticated: !!token, login, register, verifyEmail, resendCode, requestPasswordReset, resetPassword, loginWithGoogle, completeOAuth, logout: signOut, updateUser, demo: DEMO }),
+    () => ({ session: user, user, token, ready, isAuthenticated: !!token, login, register, verifyEmail, resendCode, requestPasswordReset, resetPassword, loginWithGoogle, completeOAuth, logout: signOut, updateUser }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [user, token, ready, signOut]
   )
