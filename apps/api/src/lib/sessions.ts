@@ -2,13 +2,21 @@ import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { and, eq, gt, inArray, isNull } from "drizzle-orm"
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify"
 import { db, schema } from "../db/client.js"
-import { env } from "../env.js"
+import { desktopOrigins, env } from "../env.js"
 
 export const REFRESH_COOKIE = "welya.refresh"
 const cookiePath = "/api/auth"
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex")
 const maxAge = env.SESSION_TTL_DAYS * 24 * 60 * 60
+
+// The desktop app is a different site from the API, so its refresh cookie must be SameSite=None (which requires Secure).
+function cookieOptions(req: FastifyRequest) {
+  const desktop = desktopOrigins.includes(String(req.headers.origin ?? ""))
+  return desktop && env.COOKIE_SECURE
+    ? { httpOnly: true, secure: true, sameSite: "none" as const, path: cookiePath }
+    : { httpOnly: true, secure: env.COOKIE_SECURE, sameSite: "lax" as const, path: cookiePath }
+}
 
 export function accessToken(app: FastifyInstance, user: { id: string; email: string }) {
   return app.jwt.sign({ sub: user.id, email: user.email })
@@ -24,13 +32,7 @@ export async function createSession(app: FastifyInstance, user: { id: string; em
     userAgent: String(req.headers["user-agent"] ?? "").slice(0, 500),
     ip: req.ip,
   })
-  reply.setCookie(REFRESH_COOKIE, raw, {
-    httpOnly: true,
-    secure: env.COOKIE_SECURE,
-    sameSite: "lax",
-    path: cookiePath,
-    maxAge,
-  })
+  reply.setCookie(REFRESH_COOKIE, raw, { ...cookieOptions(req), maxAge })
   return accessToken(app, user)
 }
 
@@ -65,7 +67,7 @@ export async function rotateSession(app: FastifyInstance, req: FastifyRequest, r
 export async function revokeSession(req: FastifyRequest, reply: FastifyReply) {
   const raw = req.cookies[REFRESH_COOKIE]
   if (raw) await db.update(schema.sessions).set({ revokedAt: new Date().toISOString() }).where(eq(schema.sessions.tokenHash, hashToken(raw)))
-  reply.clearCookie(REFRESH_COOKIE, { httpOnly: true, secure: env.COOKIE_SECURE, sameSite: "lax", path: cookiePath })
+  reply.clearCookie(REFRESH_COOKIE, cookieOptions(req))
 }
 
 export async function revokeUserSessions(userId: string) {

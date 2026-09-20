@@ -55,7 +55,9 @@ const schema = z.object({
 })
 
 export const env = schema.parse(process.env)
-export const corsOrigins = env.CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean)
+// Origins the Tauri desktop app runs from (Windows uses http(s)://tauri.localhost, macOS/Linux tauri://localhost).
+export const desktopOrigins = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]
+export const corsOrigins = Array.from(new Set([...env.CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean), ...desktopOrigins]))
 export const llmEnabled = Boolean(env.AZURE_OPENAI_ENDPOINT && env.AZURE_OPENAI_API_KEY)
 export const mailEnabled = Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS)
 export const googleEnabled = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)
