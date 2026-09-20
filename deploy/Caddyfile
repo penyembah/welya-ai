@@ -1,0 +1,37 @@
+{
+	# Set ACME_EMAIL in .env.docker to get certificate-expiry notices from Let's Encrypt
+	email {$ACME_EMAIL}
+}
+
+# Web app (Vite bundle served by the welya-web container)
+{$APP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:80
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		# Allow XHR/WebSocket to the API host, Google avatars, and inline runtime config
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.googleusercontent.com https://{$API_DOMAIN}; font-src 'self' data:; connect-src 'self' https://{$API_DOMAIN}; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://accounts.google.com"
+		-Server
+	}
+}
+
+# API (Fastify). Uploads can be large; keep the request body limit above the API's 25 MB cap.
+{$API_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 30MB
+	}
+	reverse_proxy api:4000 {
+		# Fastify has TRUST_PROXY=true so it reads the real client IP for rate limiting
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+}

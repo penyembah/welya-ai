@@ -1,0 +1,6 @@
+# Keep shell scripts and Dockerfiles LF so they run on Linux servers even when checked out on Windows
+*.sh text eol=lf
+Dockerfile text eol=lf
+**/Dockerfile text eol=lf
+Caddyfile text eol=lf
+*.yml text eol=lf

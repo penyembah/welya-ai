@@ -74,7 +74,8 @@ services:
     volumes:
       - welya-uploads:/data/uploads
     ports:
-      - "${API_PORT:-4000}:4000"
+      # Loopback only: the reverse proxy (Caddy) is the public entry point
+      - "127.0.0.1:${API_PORT:-4000}:4000"
 
   web:
     build:
@@ -89,8 +90,32 @@ services:
       # Public URL the browser uses to reach the API (through your reverse proxy)
       VITE_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL, e.g. https://api.welya.biz.id}
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+
+  # TLS reverse proxy. Automatic Let's Encrypt certificates; config in deploy/Caddyfile.
+  # Requires DNS A records for APP_DOMAIN and API_DOMAIN pointing at this server, ports 80/443 open.
+  caddy:
+    image: caddy:2-alpine
+    container_name: welya-caddy
+    restart: unless-stopped
+    depends_on:
+      - web
+      - api
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN, e.g. app.welya.biz.id}
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN, e.g. api.welya.biz.id}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - welya-caddy-data:/data
+      - welya-caddy-config:/config
 
 volumes:
   welya-pgdata-prod:
   welya-uploads:
+  welya-caddy-data:
+  welya-caddy-config:

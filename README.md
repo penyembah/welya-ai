@@ -39,6 +39,19 @@ npm run docker:down
 - `docker-compose.prod.yml` wires `db` → `api` → `web` with `TRUST_PROXY=true` and `COOKIE_SECURE=true`; terminate TLS with a reverse proxy (Caddy/nginx/Traefik) in front of `web:80` and `api:4000`. Because the refresh cookie is `SameSite=Lax`, serve web and API under the same registrable domain (e.g. `app.welya.biz.id` + `api.welya.biz.id`).
 - Build manually: `docker build -f apps/api/Dockerfile -t welya-api .` / `docker build -f apps/web/Dockerfile -t welya-web .` (context must be the repo root). Smoke scripts: `scripts/docker-smoke-api.ps1`, `scripts/docker-smoke-web.ps1`.
 
+### Deploying to a server
+
+One small VPS (2 vCPU / 2 GB, Ubuntu 22.04+) is enough. The stack is `db` + `api` + `web` + `caddy` (TLS via Let's Encrypt, config in `deploy/Caddyfile`).
+
+1. **DNS** — A records for `app.<domain>` and `api.<domain>` → server IP. Both must share a registrable domain so the `SameSite=Lax` refresh cookie works.
+2. **Server** — `curl -fsSL https://raw.githubusercontent.com/<you>/welya-v2/main/deploy/server-setup.sh | bash -s -- https://github.com/<you>/welya-v2.git` installs Docker, opens 22/80/443 in ufw, clones the repo to `~/welya`, and writes `.env.docker` with random DB password + JWT secret.
+3. **Configure** — edit `~/welya/.env.docker`: `APP_DOMAIN`, `API_DOMAIN`, `ACME_EMAIL`, `CORS_ORIGIN=https://app.<domain>`, `APP_URL=https://app.<domain>`, `PUBLIC_API_URL=https://api.<domain>`, plus `AZURE_*`, `SMTP_*`, `GOOGLE_*` as needed. Google redirect URIs become `https://api.<domain>/auth/google/callback` and `https://api.<domain>/integrations/google/callback` (add them in Cloud Console).
+4. **Deploy** — `deploy/deploy.sh` (build → up → wait for API health → prune). Migrations run inside the `api` container on every start. Re-run the same script for updates; it does `git pull --ff-only` first.
+5. **Backups** — `deploy/backup.sh` dumps Postgres + uploads nightly (see the crontab line inside). Restore: `gunzip -c db-*.sql.gz | docker exec -i welya-db-prod psql -U welya -d welya`.
+6. **Landing** stays on Vercel (`apps/landing`, `vercel --prod`) with `NEXT_PUBLIC_APP_URL=https://app.<domain>`.
+
+Useful: `npm run docker:logs`, `docker compose -f docker-compose.prod.yml --env-file .env.docker ps`, `... exec api node -e "..."`. Ports 4000/8080 are bound to `127.0.0.1` only — Caddy is the sole public entry point.
+
 ## Scripts
 
 | Command                                       | What it does                                                                                   |
