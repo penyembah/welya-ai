@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { PageHero, Section, SectionHeading } from "@/components/sections"
 import { site } from "@/lib/site"
 import { pageMetadata } from "@/lib/seo"
-import { formatSize, getLatestRelease, LATEST_RELEASE_URL, RELEASES_URL, type Platform } from "@/lib/releases"
+import { formatSize, getLatestRelease, LATEST_RELEASE_URL, PROXIED, RELEASES_URL, type Platform } from "@/lib/releases"
 
 export const metadata = pageMetadata({ title: "Download", description: "Use Welya AI in the browser or install the lightweight desktop app for Windows, macOS and Linux. Same account, same data.", path: "/download" })
 
@@ -30,8 +30,12 @@ export default async function DownloadPage() {
           <div className="mb-6 flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
             <Badge variant="secondary">Latest v{release.version}</Badge>
             {release.publishedAt && <span>Released {new Date(release.publishedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>}
-            <span aria-hidden>·</span>
-            <a href={RELEASES_URL} target="_blank" rel="noopener" className="underline underline-offset-4 hover:text-foreground">All releases</a>
+            {!PROXIED && (
+              <>
+                <span aria-hidden>·</span>
+                <a href={RELEASES_URL} target="_blank" rel="noopener" className="underline underline-offset-4 hover:text-foreground">All releases</a>
+              </>
+            )}
           </div>
         )}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -50,7 +54,7 @@ export default async function DownloadPage() {
 
           {desktop.map((p) => {
             const dl = release?.platforms[p.key]
-            const href = dl?.primary?.url ?? LATEST_RELEASE_URL
+            const href = dl?.primary?.url ?? (PROXIED ? undefined : LATEST_RELEASE_URL)
             return (
               <Card key={p.key}>
                 <CardHeader>
@@ -75,16 +79,20 @@ export default async function DownloadPage() {
                   </CardContent>
                 )}
                 <CardFooter className="mt-auto">
-                  <Button className="w-full" variant="outline" render={<a href={href} rel="noopener" target={dl?.primary ? undefined : "_blank"} />}>
-                    {dl?.primary ? <DownloadIcon data-icon="inline-start" /> : null}
-                    {p.cta} {dl?.primary ? null : <ArrowRightIcon data-icon="inline-end" />}
-                  </Button>
+                  {href ? (
+                    <Button className="w-full" variant="outline" render={<a href={href} rel="noopener" target={dl?.primary ? undefined : "_blank"} />}>
+                      {dl?.primary ? <DownloadIcon data-icon="inline-start" /> : null}
+                      {p.cta} {dl?.primary ? null : <ArrowRightIcon data-icon="inline-end" />}
+                    </Button>
+                  ) : (
+                    <Button className="w-full" variant="outline" disabled>Coming soon</Button>
+                  )}
                 </CardFooter>
               </Card>
             )
           })}
         </div>
-        {!release && (
+        {!release && !PROXIED && (
           <p className="mt-4 text-center text-sm text-muted-foreground">
             Desktop installers are published on <a href={RELEASES_URL} target="_blank" rel="noopener" className="underline underline-offset-4 hover:text-foreground">GitHub Releases</a>.
           </p>

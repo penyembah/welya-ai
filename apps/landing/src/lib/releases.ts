@@ -4,6 +4,15 @@
 export const GITHUB_REPO = process.env.NEXT_PUBLIC_GITHUB_REPO ?? "penyembah/welya-ai"
 export const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 export const LATEST_RELEASE_URL = `${RELEASES_URL}/latest`
+// With a token the repo may be private: downloads go through /download/asset/[id] instead of github.com.
+export const GITHUB_TOKEN = process.env.GITHUB_TOKEN
+export const PROXIED = Boolean(GITHUB_TOKEN)
+
+export function githubHeaders(accept = "application/vnd.github+json") {
+  const headers: Record<string, string> = { Accept: accept, "User-Agent": "welya-landing" }
+  if (GITHUB_TOKEN) headers.Authorization = `Bearer ${GITHUB_TOKEN}`
+  return headers
+}
 
 export type Platform = "windows" | "macos" | "linux"
 
@@ -18,7 +27,7 @@ export type LatestRelease = {
   platforms: Record<Platform, PlatformDownloads>
 }
 
-type GithubAsset = { name: string; browser_download_url: string; size: number }
+type GithubAsset = { id: number; name: string; browser_download_url: string; size: number }
 type GithubRelease = { tag_name: string; html_url: string; published_at: string | null; assets: GithubAsset[]; draft: boolean; prerelease: boolean }
 
 // Order matters: the first match per platform becomes the primary button.
@@ -41,7 +50,8 @@ function groupAssets(assets: GithubAsset[]): Record<Platform, PlatformDownloads>
       // Skip updater signatures / metadata that tauri-action may also upload
       if (a.name.endsWith(".sig") || a.name.endsWith(".json")) continue
       used.add(a.name)
-      const asset: ReleaseAsset = { name: a.name, url: a.browser_download_url, size: a.size, label: m.label }
+      const url = PROXIED ? `/download/asset/${a.id}` : a.browser_download_url
+      const asset: ReleaseAsset = { name: a.name, url, size: a.size, label: m.label }
       const bucket = out[m.platform]
       if (bucket.primary) bucket.alternatives.push(asset)
       else bucket.primary = asset
@@ -52,9 +62,7 @@ function groupAssets(assets: GithubAsset[]): Record<Platform, PlatformDownloads>
 
 export async function getLatestRelease(): Promise<LatestRelease | null> {
   try {
-    const headers: Record<string, string> = { Accept: "application/vnd.github+json", "User-Agent": "welya-landing" }
-    if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, { headers, next: { revalidate: 3600 } })
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, { headers: githubHeaders(), next: { revalidate: 3600 } })
     if (!res.ok) return null
     const data = (await res.json()) as GithubRelease
     if (data.draft) return null
