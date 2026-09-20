@@ -14,6 +14,8 @@ out/
 .env.*
 !.env.example
 !.env.*.example
+# public build-time config for the web/desktop bundle (no secrets)
+!apps/web/.env.production
 *.local
 
 # runtime data

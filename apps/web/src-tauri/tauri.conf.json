@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "welya-v2",
-  "version": "0.1.0",
-  "identifier": "com.jobri.welya-v2",
+  "productName": "Welya AI",
+  "version": "0.2.0",
+  "identifier": "id.biz.welya.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -15,6 +15,8 @@
         "title": "Welya AI",
         "width": 1280,
         "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
         "theme": "Dark",
         "backgroundColor": "#151b1d"
       }
@@ -25,13 +27,23 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "nsis", "dmg", "deb", "appimage"],
+    "publisher": "Welya",
+    "category": "Productivity",
+    "shortDescription": "AI secretary for university students",
+    "longDescription": "Welya reads lecturer emails, class messages and course documents, then turns them into tasks, deadlines and a planned week.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English", "Indonesian"]
+      }
+    }
   }
 }
