@@ -1,43 +1,94 @@
 import Image from "next/image"
-import { ArrowRightIcon, MonitorIcon, AppleIcon, LaptopIcon, GlobeIcon } from "lucide-react"
+import { ArrowRightIcon, DownloadIcon, MonitorIcon, AppleIcon, LaptopIcon, GlobeIcon } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageHero, Section, SectionHeading } from "@/components/sections"
 import { site } from "@/lib/site"
 import { pageMetadata } from "@/lib/seo"
+import { formatSize, getLatestRelease, LATEST_RELEASE_URL, RELEASES_URL, type Platform } from "@/lib/releases"
 
 export const metadata = pageMetadata({ title: "Download", description: "Use Welya AI in the browser or install the lightweight desktop app for Windows, macOS and Linux. Same account, same data.", path: "/download" })
 
-const RELEASES = process.env.NEXT_PUBLIC_RELEASES_URL ?? "https://github.com/welya/welya/releases/latest"
+// Re-check GitHub Releases at most once an hour so new builds show up without a redeploy.
+export const revalidate = 3600
 
-const platforms = [
-  { icon: GlobeIcon, name: "Web app", desc: "Nothing to install. Works in any modern browser.", href: `${site.appUrl}/login`, cta: "Open Welya" },
-  { icon: MonitorIcon, name: "Windows", desc: "Installer (.msi) for Windows 10 and 11. Built with Tauri — under 15 MB.", href: RELEASES, cta: "Download for Windows" },
-  { icon: AppleIcon, name: "macOS", desc: "Universal .dmg for Apple Silicon and Intel Macs.", href: RELEASES, cta: "Download for macOS" },
-  { icon: LaptopIcon, name: "Linux", desc: ".deb and .AppImage builds.", href: RELEASES, cta: "Download for Linux" },
+const desktop: { key: Platform; icon: typeof MonitorIcon; name: string; desc: string; cta: string }[] = [
+  { key: "windows", icon: MonitorIcon, name: "Windows", desc: "Installer for Windows 10 and 11. Built with Tauri — small and fast.", cta: "Download for Windows" },
+  { key: "macos", icon: AppleIcon, name: "macOS", desc: "Native .dmg for Apple Silicon and Intel Macs.", cta: "Download for macOS" },
+  { key: "linux", icon: LaptopIcon, name: "Linux", desc: "AppImage and .deb builds.", cta: "Download for Linux" },
 ]
 
-export default function DownloadPage() {
+export default async function DownloadPage() {
+  const release = await getLatestRelease()
+
   return (
     <>
       <PageHero eyebrow="Download" title="Welya on every screen you study at" description="The desktop app is the same Welya, wrapped in a native window with system notifications for reminders. Your account and data are shared across all of them." />
       <Section className="pt-0 sm:pt-0 -mt-10">
+        {release && (
+          <div className="mb-6 flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Badge variant="secondary">Latest v{release.version}</Badge>
+            {release.publishedAt && <span>Released {new Date(release.publishedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>}
+            <span aria-hidden>·</span>
+            <a href={RELEASES_URL} target="_blank" rel="noopener" className="underline underline-offset-4 hover:text-foreground">All releases</a>
+          </div>
+        )}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {platforms.map((p) => (
-            <Card key={p.name}>
-              <CardHeader>
-                <div className="mb-2 flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><p.icon className="size-4" /></div>
-                <CardTitle>{p.name}</CardTitle>
-                <CardDescription>{p.desc}</CardDescription>
-              </CardHeader>
-              <CardFooter>
-                <Button className="w-full" variant={p.name === "Web app" ? "default" : "outline"} render={<a href={p.href} target={p.href.startsWith("http") && !p.href.startsWith(site.appUrl) ? "_blank" : undefined} rel="noopener" />}>
-                  {p.cta} <ArrowRightIcon data-icon="inline-end" />
-                </Button>
-              </CardFooter>
-            </Card>
-          ))}
+          <Card>
+            <CardHeader>
+              <div className="mb-2 flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><GlobeIcon className="size-4" /></div>
+              <CardTitle>Web app</CardTitle>
+              <CardDescription>Nothing to install. Works in any modern browser.</CardDescription>
+            </CardHeader>
+            <CardFooter className="mt-auto">
+              <Button className="w-full" render={<a href={`${site.appUrl}/login`} />}>
+                Open Welya <ArrowRightIcon data-icon="inline-end" />
+              </Button>
+            </CardFooter>
+          </Card>
+
+          {desktop.map((p) => {
+            const dl = release?.platforms[p.key]
+            const href = dl?.primary?.url ?? LATEST_RELEASE_URL
+            return (
+              <Card key={p.key}>
+                <CardHeader>
+                  <div className="mb-2 flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><p.icon className="size-4" /></div>
+                  <CardTitle>{p.name}</CardTitle>
+                  <CardDescription>{p.desc}</CardDescription>
+                </CardHeader>
+                {dl?.primary && (
+                  <CardContent className="text-xs text-muted-foreground">
+                    <p className="truncate" title={dl.primary.name}>{dl.primary.label} · {formatSize(dl.primary.size)}</p>
+                    {dl.alternatives.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {dl.alternatives.map((a) => (
+                          <li key={a.name}>
+                            <a href={a.url} className="underline underline-offset-4 hover:text-foreground" title={a.name}>
+                              {a.label} · {formatSize(a.size)}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </CardContent>
+                )}
+                <CardFooter className="mt-auto">
+                  <Button className="w-full" variant="outline" render={<a href={href} rel="noopener" target={dl?.primary ? undefined : "_blank"} />}>
+                    {dl?.primary ? <DownloadIcon data-icon="inline-start" /> : null}
+                    {p.cta} {dl?.primary ? null : <ArrowRightIcon data-icon="inline-end" />}
+                  </Button>
+                </CardFooter>
+              </Card>
+            )
+          })}
         </div>
+        {!release && (
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            Desktop installers are published on <a href={RELEASES_URL} target="_blank" rel="noopener" className="underline underline-offset-4 hover:text-foreground">GitHub Releases</a>.
+          </p>
+        )}
       </Section>
       <Section muted>
         <SectionHeading eyebrow="Mobile" title="Phone-friendly from day one" description="The web app is fully responsive — pin it to your home screen. Native iOS and Android apps are on the roadmap." />

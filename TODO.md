@@ -50,6 +50,7 @@ Prioritised backlog from the gap review on 2026-09-20. Tick items as they land; 
 - [ ] **Accessibility pass**: keyboard traversal of dialogs/command palette, focus rings, aria-labels on icon buttons, colour contrast in dark theme.
 - [ ] **Observability**: Sentry (API + web + landing), request IDs, per-user token/cost metrics for Azure calls, alert on `source: "rules"` fallback rate.
 - [ ] **Performance**: paginate `/bootstrap` sections that grow (inbox, notifications, conversations); virtualise long lists.
+- [x] **Desktop release pipeline**: `.github/workflows/release.yml` (tauri-action) builds Windows/macOS/Linux installers on `v*` tags and publishes a GitHub Release.
 - [ ] **Tauri desktop**: OAuth via system browser + deep link (`welya://auth/callback`) since Google blocks embedded webviews; auto-updater; signed builds.
 - [x] **Account**: change password / set password for Google-only accounts, change email with re-verification (code to the new address, old address notified, other sessions revoked), active sessions list with per-device revoke and "sign out other devices".
 
@@ -57,7 +58,7 @@ Prioritised backlog from the gap review on 2026-09-20. Tick items as they land; 
 
 - [ ] Blog as MDX files (or CMS) instead of `site.ts` array; RSS feed.
 - [ ] Working contact form (API endpoint → Brevo transactional mail) instead of `mailto:`.
-- [ ] Download page linking to real Tauri release artifacts (GitHub Releases) with OS auto-detect.
+- [x] Download page linking to real Tauri release artifacts (GitHub Releases) — resolves latest release assets server-side (`apps/landing/src/lib/releases.ts`). Still to do: OS auto-detect on the client.
 - [ ] Privacy-friendly analytics (Plausible/Umami); Search Console + sitemap submission.
 - [ ] Refresh screenshots automatically in CI (`npm run screenshots`) on release.
 
