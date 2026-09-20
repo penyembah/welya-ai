@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <path d="M8 18l8.5 28h6.4L28 30.5 33.1 46h6.4L48 18h-6.8l-5 20-4.9-16.5h-6.6L19.8 38 14.8 18H8Z" fill="currentColor"/>
+  <!-- AI sparkle -->
+  <path d="M52 8l1.6 4.4L58 14l-4.4 1.6L52 20l-1.6-4.4L46 14l4.4-1.6L52 8Z" fill="currentColor"/>
+</svg>

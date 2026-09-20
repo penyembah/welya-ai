@@ -1,0 +1,32 @@
+{
+  "name": "welya",
+  "private": true,
+  "version": "0.2.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web,landing -c cyan,magenta,yellow \"npm run dev -w @welya/api\" \"npm run dev -w @welya/web\" \"npm run dev -w @welya/landing\"",
+    "dev:web": "npm run dev -w @welya/web",
+    "dev:api": "npm run dev -w @welya/api",
+    "dev:landing": "npm run dev -w @welya/landing",
+    "build": "npm run build -w @welya/api && npm run build -w @welya/web && npm run build -w @welya/landing",
+    "tauri": "npm run tauri -w @welya/web --",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:generate": "npm run db:generate -w @welya/api",
+    "db:migrate": "npm run db:migrate -w @welya/api",
+    "db:baseline": "npm run db:baseline -w @welya/api",
+    "db:push": "npm run db:push -w @welya/api",
+    "db:seed": "npm run db:seed -w @welya/api",
+    "db:studio": "npm run db:studio -w @welya/api",
+    "docker:build": "docker compose -f docker-compose.prod.yml --env-file .env.docker build",
+    "docker:up": "docker compose -f docker-compose.prod.yml --env-file .env.docker up -d --build",
+    "docker:down": "docker compose -f docker-compose.prod.yml --env-file .env.docker down",
+    "docker:logs": "docker compose -f docker-compose.prod.yml --env-file .env.docker logs -f api web",
+    "screenshots": "node apps/landing/scripts/screenshots.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

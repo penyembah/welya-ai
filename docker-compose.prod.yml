@@ -1,0 +1,96 @@
+# Production-style stack: Postgres + API + web (Vite/nginx). The landing site is deployed separately (Vercel).
+#
+#   cp .env.docker.example .env.docker      # fill in secrets
+#   docker compose -f docker-compose.prod.yml --env-file .env.docker up -d --build
+#
+# Then put a TLS reverse proxy (Caddy/nginx/Traefik) in front of web:80 and api:4000.
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: welya-db-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-welya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.docker}
+      POSTGRES_DB: ${POSTGRES_DB:-welya}
+    volumes:
+      - welya-pgdata-prod:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-welya} -d ${POSTGRES_DB:-welya}",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: welya-api:latest
+    container_name: welya-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      TRUST_PROXY: "true"
+      COOKIE_SECURE: "true"
+      DATABASE_URL: postgres://${POSTGRES_USER:-welya}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-welya}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.docker}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      CORS_ORIGIN: ${CORS_ORIGIN:?set CORS_ORIGIN to your web origin(s)}
+      APP_URL: ${APP_URL:?set APP_URL to the public web URL}
+      DEV_EXPOSE_CODES: "false"
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-300}
+      UPLOAD_DIR: /data/uploads
+      # AI (optional)
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-gpt-5-mini}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-45000}
+      # Email (optional)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-Welya <no-reply@welya.app>}
+      # Google OAuth (optional)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      GOOGLE_INTEGRATION_REDIRECT_URI: ${GOOGLE_INTEGRATION_REDIRECT_URI:-}
+      GOOGLE_SYNC_INTERVAL_MINUTES: ${GOOGLE_SYNC_INTERVAL_MINUTES:-15}
+      # Reminders
+      REMINDER_SCHEDULER_ENABLED: ${REMINDER_SCHEDULER_ENABLED:-true}
+      WEEKLY_REVIEW_DAY: ${WEEKLY_REVIEW_DAY:-0}
+      WEEKLY_REVIEW_TIME: ${WEEKLY_REVIEW_TIME:-19:00}
+    volumes:
+      - welya-uploads:/data/uploads
+    ports:
+      - "${API_PORT:-4000}:4000"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: welya-web:latest
+    container_name: welya-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      # Public URL the browser uses to reach the API (through your reverse proxy)
+      VITE_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL, e.g. https://api.welya.biz.id}
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  welya-pgdata-prod:
+  welya-uploads:

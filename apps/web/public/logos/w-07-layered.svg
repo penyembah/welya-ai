@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Two overlapping strokes with a gap: layered information → structure -->
+  <path d="M8 16l9 32 10-20" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M27 28l10 20 9-32" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+  <path d="M56 16h0" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+</svg>

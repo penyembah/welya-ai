@@ -1,0 +1,24 @@
+# Keep the build context small — Dockerfiles copy exactly what they need
+
+**/node_modules
+**/dist
+**/.next
+**/out
+**/target
+**/uploads
+**/.env
+**/.env._
+!**/.env.example
+**/_.local \*_/_.log
+.git
+.vscode
+.idea
+
+# landing is deployed separately, but npm ci needs its manifest to resolve the workspace lockfile
+
+apps/landing/_
+!apps/landing/package.json
+apps/web/src-tauri
+README.md
+TODO.md
+docker-compose_.yml
