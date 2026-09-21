@@ -28,6 +28,10 @@ export function persistAction(action, before, after) {
       const evs = after.events.filter((e) => !before.events.some((b) => b.id === e.id))
       return evs.length ? api.post("/events", evs) : null
     }
+    case "event/update":
+      return api.patch(`/events/${action.id}`, action.patch)
+    case "event/delete":
+      return api.delete(`/events/${action.id}`)
     case "inbox/set-status":
       return api.patch(`/inbox/${action.id}`, { status: action.status, ...(action.patch ?? {}) })
     case "inbox/add": {

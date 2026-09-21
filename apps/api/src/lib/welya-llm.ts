@@ -1,9 +1,11 @@
 import { format, isSameDay } from "date-fns"
-import type { UserData } from "./data.js"
-import { llmJson, S } from "./llm.js"
+import type { FastifyBaseLogger } from "fastify"
+import { loadUserData, type UserData } from "./data.js"
+import { llmJson, llmWithTools, S } from "./llm.js"
 import { llmEnabled } from "../env.js"
 import * as rules from "./welya-ai.js"
 import type { ChatContext, Reply } from "./welya-ai.js"
+import { createToolRunner, hasEffects, type Effects } from "./welya-tools.js"
 
 /**
  * LLM-backed implementations (Azure AI Foundry). Each function degrades to the
@@ -15,7 +17,7 @@ export type WithSource<T> = T & { source: "llm" | "rules" }
 const PERSONA = `You are Welya, an AI academic secretary for a university student. You are concise, warm and practical.
 You only know what is in the CONTEXT block; never invent tasks, courses, dates or files that are not listed.
 All dates/times in the context are already in the student's local time in a human format (e.g. "Sat 20 Sep 23:59") — quote them like that, never as ISO timestamps or with timezone suffixes. Answer in the same language the user writes in (Indonesian or English).
-Format replies in GitHub-flavoured Markdown: short paragraphs, "-" bullet lists for multiple items, **bold** for task names and times, a small table only when comparing several items. No headings larger than ###. Never wrap the whole answer in a code block. Never print internal ids like [t4] in the text — put them in the references array instead.`
+Format replies in GitHub-flavoured Markdown: short paragraphs, "-" bullet lists for multiple items, **bold** for task names and times, a small table only when comparing several items. No headings larger than ###. Never wrap the whole answer in a code block. Never print internal ids or UUIDs (like [t4] or 1ddbb32a-…) and never add a "References" line — the app shows links itself.`
 
 type Task = UserData["tasks"][number]
 
@@ -36,16 +38,16 @@ function contextBlock(data: UserData, ctx: ChatContext = {}) {
 
   return [
     `CONTEXT`,
-    `Now: ${format(now, "EEEE, d MMMM yyyy HH:mm")} (local time; all times below are local)`,
+    `Now: ${format(now, "EEEE, d MMMM yyyy HH:mm")} (local time, UTC${format(now, "xxx")}; all times below are local — use this offset in ISO timestamps)`,
     `Student: ${data.user.name}, ${data.user.program} semester ${data.user.semester}, ${data.user.university}`,
     ctx.courseId ? `Focus course: ${course(ctx.courseId)}` : ctx.workspaceId ? `Focus workspace: ${data.workspaces.find((w) => w.id === ctx.workspaceId)?.name}` : "",
     doc ? `Focus document [${doc.id}] "${doc.title}" (${doc.type}, ${course(doc.courseId) ?? "no course"}): ${doc.content ?? doc.summary}` : "",
-    `Courses: ${data.courses.map((c) => `${c.name} (${c.code}, ${c.lecturer}; ${c.schedule.map((s) => `${s.day} ${s.start}-${s.end} ${s.room}`).join(", ")})`).join(" | ")}`,
+    `Courses: ${data.courses.map((c) => `[${c.id}] ${c.name} (${c.code}, ${c.lecturer}; ${c.schedule.map((s) => `${s.day} ${s.start}-${s.end} ${s.room}`).join(", ")})`).join(" | ")}`,
     `Open tasks (${scoped.length}):\n${scoped.slice(0, 20).map(fmtTask).join("\n") || "- none"}`,
     `Recently completed: ${data.tasks.filter((t) => t.status === "done").slice(0, 5).map((t) => `"${t.title}"`).join(", ") || "none"}`,
-    `Today's events:\n${todayEvents.map((e) => `- ${format(new Date(e.start), "HH:mm")}-${format(new Date(e.end), "HH:mm")} ${e.title} (${e.type}${e.location ? `, ${e.location}` : ""})`).join("\n") || "- none"}`,
+    `Today's events:\n${todayEvents.map((e) => `- [${e.id}] ${format(new Date(e.start), "HH:mm")}-${format(new Date(e.end), "HH:mm")} ${e.title} (${e.type}${e.location ? `, ${e.location}` : ""})`).join("\n") || "- none"}`,
     `Free slots today (08:00–18:00): ${freeToday.join(", ") || "none"}`,
-    `Upcoming events (7 days):\n${week.map((e) => `- ${hd(e.start)} ${e.title} (${e.type})`).join("\n") || "- none"}`,
+    `Upcoming events (7 days):\n${week.map((e) => `- [${e.id}] ${hd(e.start)} ${e.title} (${e.type}${e.location ? `, ${e.location}` : ""})`).join("\n") || "- none"}`,
     `Unprocessed inbox (${inbox.length}):\n${inbox.map((i) => `- [${i.id}] from ${i.sender}: "${i.subject}" → ${(i.ai as { type?: string }).type ?? "?"}: ${(i.ai as { suggestion?: string }).suggestion ?? ""}`).join("\n") || "- none"}`,
     `Documents: ${data.documents.slice(0, 15).map((d) => `[${d.id}] ${d.title}`).join(", ") || "none"}`,
   ].filter(Boolean).join("\n")
@@ -79,20 +81,22 @@ export async function conversationTitle(prompt: string): Promise<string> {
   }
 }
 
-const ACTION_KINDS = ["navigate", "open-task", "plan", "plan-week", "schedule-courses", "create-task", "breakdown", "prompt"]
+const ACTION_KINDS = ["navigate", "open-task", "plan", "plan-week", "schedule-courses", "create-task", "create-event", "breakdown", "prompt"]
 
 const CALENDAR_WORDS = /kalender|calendar|jadwal|schedule|acara|event|tambah|add|masukkan|insert|\bya\b|yes/i
 const NEGATIVE_WORDS = /jangan|belum|tidak|nanti|dulu|detail|koreksi|perbaiki|correct|fix|don't|do not|\bnot\b|ubah|change|edit|hapus|delete|remove/i
 
 // Strips nulls, drops phantom ids, and guarantees schedule-courses carries concrete rows (from the model, else parsed from the reply/history).
-function finalizeActions(rawActions: Array<Record<string, unknown>>, content: string, prompt: string, history: Array<{ role: string; content: string }>, taskIds: Set<string>) {
+function finalizeActions(rawActions: Array<Record<string, unknown>>, content: string, prompt: string, history: Array<{ role: string; content: string }>, taskIds: Set<string>, courseIds?: Set<string>) {
   const rows = [content, prompt, ...[...history].reverse().map((m) => m.content)].map((t) => rules.extractScheduleRows(t)).find((r) => r.length) ?? []
   const actions = rawActions
     .filter((a) => ACTION_KINDS.includes(a.kind as string))
     .filter((a) => !(["open-task", "breakdown"].includes(a.kind as string) && !taskIds.has(a.targetId as string)))
     .map((a) => Object.fromEntries(Object.entries(a).filter(([, v]) => v !== null && !(Array.isArray(v) && v.length === 0))))
-    .map((a) => (a.kind === "create-task" ? normalizeTaskAction(a) : a))
+    .map((a) => (a.kind === "create-task" ? normalizeTaskAction(a, courseIds) : a))
     .filter((a) => a.kind !== "create-task" || a.title)
+    .map((a) => (a.kind === "create-event" ? normalizeEventAction(a, courseIds) : a))
+    .filter((a) => a.kind !== "create-event" || a.title)
     // An affirmative "prompt" about adding the timetable is really a schedule-courses action; negative/edit prompts stay prompts
     .map((a) => (a.kind === "prompt" && rows.length && CALENDAR_WORDS.test(`${a.label ?? ""} ${a.prompt ?? ""}`) && !NEGATIVE_WORDS.test(`${a.label ?? ""} ${a.prompt ?? ""}`) ? { label: a.label, kind: "schedule-courses" } : a))
     .map((a) => (a.kind === "schedule-courses" && !Array.isArray(a.schedule) && rows.length ? { ...a, schedule: rows } : a))
@@ -120,18 +124,42 @@ export function toIsoDeadline(value: unknown, fallbackDays = 7): string {
   return fallback()
 }
 
-function normalizeTaskAction(a: Record<string, unknown>): Record<string, unknown> {
+function normalizeTaskAction(a: Record<string, unknown>, courseIds?: Set<string>): Record<string, unknown> {
   const minutes = Number(a.estimatedMinutes)
   const priority = ["high", "medium", "low"].includes(String(a.priority)) ? String(a.priority) : "medium"
+  const courseId = typeof a.courseId === "string" && (!courseIds || courseIds.has(a.courseId)) ? a.courseId : undefined
   return {
     ...a,
-    title: String(a.title ?? "").trim().slice(0, 200),
+    title: rules.cleanTaskTitle(String(a.title ?? "")),
     description: typeof a.description === "string" ? a.description.slice(0, 2000) : "",
     deadline: toIsoDeadline(a.deadline),
     estimatedMinutes: Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 60,
     priority,
+    ...(courseId ? { courseId } : {}),
   }
 }
+
+const EVENT_TYPES = ["class", "meeting", "reminder", "work-session", "deadline"]
+
+function normalizeEventAction(a: Record<string, unknown>, courseIds?: Set<string>): Record<string, unknown> {
+  const title = String(a.title ?? "").replace(/\s+/g, " ").trim().slice(0, 200)
+  const startMs = new Date(String(a.start ?? "")).getTime()
+  if (!title || Number.isNaN(startMs)) return { ...a, title: "" }
+  const endMs = new Date(String(a.end ?? "")).getTime()
+  const end = Number.isNaN(endMs) || endMs <= startMs ? startMs + 60 * 60_000 : endMs
+  const courseId = typeof a.courseId === "string" && (!courseIds || courseIds.has(a.courseId)) ? a.courseId : undefined
+  return {
+    label: a.label,
+    kind: "create-event",
+    title,
+    eventType: EVENT_TYPES.includes(String(a.eventType)) ? String(a.eventType) : "meeting",
+    start: new Date(startMs).toISOString(),
+    end: new Date(end).toISOString(),
+    ...(typeof a.location === "string" && a.location.trim() ? { location: a.location.trim().slice(0, 200) } : {}),
+    ...(courseId ? { courseId } : {}),
+  }
+}
+
 
 const replySchema = S.obj({
   content: S.str("The reply to the student in Markdown. 1–6 sentences, or a short bullet list when listing tasks/times."),
@@ -144,11 +172,16 @@ const replySchema = S.obj({
       to: S.nstr("App route for navigate: /tasks, /tasks?view=overdue, /calendar, /inbox, /documents, /courses, else null"),
       date: S.nstr("ISO date for plan (which day to plan), else null"),
       prompt: S.nstr("Follow-up question text for kind=prompt, else null"),
-      title: S.nstr("Task title for kind=create-task, else null"),
+      title: S.nstr("Task title for kind=create-task, else null. A clean, specific noun phrase like an assignment name (e.g. \"Landing Page Pemrograman Web\", \"Laporan Praktikum Modul 4\"), 3–8 words, capitalised, in the student's language. Never copy the request verbatim; no leading verbs like buat/membuat/create, no 'tugas'/'task' prefix, no course name if courseId is set."),
+      courseId: S.nstr("Exact course id from CONTEXT for kind=create-task when the task belongs to a course, else null"),
       deadline: S.nstr("Deadline for kind=create-task as a full ISO-8601 datetime with timezone offset, e.g. 2026-09-24T23:59:00+07:00; else null"),
-      description: S.nstr("Task description for kind=create-task, else null"),
+      description: S.nstr("Task description for kind=create-task: one or two sentences describing the deliverable (what, for which course, any details the student gave), else null"),
       estimatedMinutes: { type: ["number", "null"], description: "Estimated task duration in minutes for kind=create-task, else null" },
       priority: { type: ["string", "null"], enum: ["high", "medium", "low", null], description: "Task priority for kind=create-task, else null" },
+      start: S.nstr("Event start for kind=create-event as a full ISO-8601 datetime with timezone offset, e.g. 2026-09-22T14:00:00+07:00; else null"),
+      end: S.nstr("Event end for kind=create-event as a full ISO-8601 datetime with timezone offset; else null"),
+      location: S.nstr("Event location for kind=create-event, else null"),
+      eventType: { type: ["string", "null"], enum: ["class", "meeting", "reminder", "work-session", "deadline", null], description: "Event type for kind=create-event (meeting for consultations/thesis supervision), else null" },
       schedule: {
         type: "array",
         description: "Extracted weekly class rows for kind=schedule-courses, else an empty array",
@@ -165,28 +198,80 @@ const replySchema = S.obj({
   ),
 })
 
-export async function chat(prompt: string, data: UserData, ctx: ChatContext = {}, history: Array<{ role: string; content: string }> = []): Promise<WithSource<Reply>> {
+const CHAT_INSTRUCTIONS = `${PERSONA}
+You manage the student's data through TOOLS. When the student asks to create, change, complete, delete or schedule something, you MUST call the matching tool — never claim something was recorded without a tool call, and never describe what a button will do (there are no buttons). Use ids from CONTEXT for updates/deletes. Compute ISO-8601 timestamps from "Now" using the stated UTC offset.
+Act as soon as you have a title and a date/time; assume sensible defaults instead of asking (deadline 23:59, events 1 hour, priority medium) and mention the assumption in one short clause. Ask a question only when something essential is genuinely missing (e.g. no date at all). Per-event reminders do not exist — do not offer them.
+Task titles: short syllabus-style noun phrases naming the deliverable (e.g. "Landing Page Pemrograman Web", "Laporan Praktikum Modul 4"), never the student's sentence, no leading verbs. Link tasks/events to the matching course id. For non-trivial tasks include 3–6 concrete subtasks.
+After tools run, confirm in one or two sentences using the tool RESULT (real titles, dates, counts). If a tool returns ok=false, say so honestly and suggest what to do. If "note" says it already exists, tell the student it was already there.
+CONTEXT is the only source of truth; anything mentioned in earlier messages but missing from CONTEXT has been deleted. For questions (what's due, what to focus on) answer from CONTEXT, prioritising by deadline then priority, and mention concrete free slots when relevant.`
+
+function actionsFromEffects(effects: Effects, data: UserData): { actions: Array<Record<string, unknown>>; references: Reply["references"] } {
+  const actions: Array<Record<string, unknown>> = []
+  const references: Reply["references"] = []
+  for (const t of [...effects.tasksCreated, ...effects.tasksUpdated].slice(0, 3)) {
+    if (!references.some((r) => r.id === t.id)) references.push({ type: "task", id: t.id, label: t.title })
+  }
+  const firstTask = effects.tasksCreated[0] ?? effects.tasksUpdated[0]
+  if (firstTask && data.tasks.some((t) => t.id === firstTask.id)) actions.push({ label: "Open task", kind: "open-task", targetId: firstTask.id })
+  else if (firstTask) actions.push({ label: "Open tasks", kind: "navigate", to: "/tasks" })
+  if (effects.eventsCreated.length || effects.eventsUpdated.length || effects.sessionsAdded || effects.classEventsAdded) {
+    actions.push({ label: "Open calendar", kind: "navigate", to: effects.classEventsAdded ? "/calendar?view=month" : "/calendar?view=week" })
+  }
+  return { actions, references }
+}
+
+// Models occasionally echo ids from CONTEXT; the UI renders references as chips instead.
+const UUID = /\[?\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b\]?/gi
+function scrubIds(text: string) {
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*(references?|referensi|id acara|id tugas)\s*:/i.test(line))
+    .join("\n")
+    .replace(UUID, "")
+    .replace(/\(\s*\)|\[\s*\]/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+}
+
+export async function chat(prompt: string, data: UserData, ctx: ChatContext = {}, history: Array<{ role: string; content: string }> = [], log?: FastifyBaseLogger): Promise<WithSource<Reply> & { effects?: Effects }> {
   if (!llmEnabled) return { ...rules.generateReply(prompt, data, ctx, history), source: "rules" }
+  const runner = createToolRunner(data.user.id, data, log)
   try {
-    const raw = await llmJson<Reply>({
-      name: "welya_reply",
-      schema: replySchema,
-      instructions: `${PERSONA}
-Capabilities the app can run for the student via actions: "plan" (schedule work sessions into today's or a given day's free time), "plan-week" (same for next week), "schedule-courses" (add recurring class schedules from courses to the calendar without reminders), "create-task" (create a task using title/deadline/estimatedMinutes/priority fields), "breakdown" (split a task into subtasks), "open-task", "navigate", "prompt" (suggest a follow-up).
-When the student asks what to do, prioritise by deadline then priority. Mention concrete times from the free slots when planning. Keep it short.`,
+    const { text, calls } = await llmWithTools({
+      instructions: CHAT_INSTRUCTIONS,
+      tools: runner.tools,
+      execute: runner.run,
       input: [
         { role: "developer", content: contextBlock(data, ctx) },
         ...history.slice(-8).map((m) => ({ role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant", content: m.content })),
         { role: "user", content: prompt },
       ],
-      effort: "low",
-      maxOutputTokens: 900,
+      effort: "minimal",
+      maxOutputTokens: 1500,
     })
-    // Validate references/actions against real data so the UI never links to phantoms
-    const ids = { task: new Set(data.tasks.map((t) => t.id)), inbox: new Set(data.inboxItems.map((i) => i.id)), document: new Set(data.documents.map((d) => d.id)) }
-    const references = (raw.references ?? []).filter((r) => ids[r.type as keyof typeof ids]?.has(r.id)).slice(0, 5)
-    return { content: raw.content, references, actions: finalizeActions(raw.actions ?? [], raw.content, prompt, history, ids.task), source: "llm" }
+    log?.info({ tools: calls.map((c) => ({ name: c.name, ok: (c.result as { ok?: boolean })?.ok })) }, "chat tools")
+    const changed = hasEffects(runner.effects)
+    // Reload so buttons/references point at the rows that now exist
+    const fresh = changed ? await loadUserData(data.user.id) : data
+    const { actions, references } = actionsFromEffects(runner.effects, fresh)
+    const rows = rules.extractScheduleRows(text)
+    if (rows.length && !runner.effects.classEventsAdded) actions.unshift({ label: "Add to calendar", kind: "schedule-courses", schedule: rows })
+    return { content: scrubIds(text), references, actions: actions.slice(0, 3), source: "llm", ...(changed ? { effects: runner.effects } : {}) }
   } catch (e) {
+    // Tools may already have run before the failure; never pretend nothing happened
+    if (hasEffects(runner.effects)) {
+      const { actions, references } = actionsFromEffects(runner.effects, data)
+      const done = [
+        runner.effects.tasksCreated.length && `created ${runner.effects.tasksCreated.map((t) => `**${t.title}**`).join(", ")}`,
+        runner.effects.tasksUpdated.length && `updated ${runner.effects.tasksUpdated.length} task(s)`,
+        runner.effects.tasksDeleted.length && `deleted ${runner.effects.tasksDeleted.length} task(s)`,
+        runner.effects.eventsCreated.length && `added ${runner.effects.eventsCreated.map((ev) => `**${ev.title}**`).join(", ")} to the calendar`,
+        runner.effects.sessionsAdded && `planned ${runner.effects.sessionsAdded} work session(s)`,
+        runner.effects.classEventsAdded && `added ${runner.effects.classEventsAdded} class events`,
+      ].filter(Boolean).join("; ")
+      return { content: `Done — ${done}.`, references, actions, source: "llm", effects: runner.effects, ...debug(e) }
+    }
     return { ...rules.generateReply(prompt, data, ctx, history), source: "rules", ...debug(e) }
   }
 }

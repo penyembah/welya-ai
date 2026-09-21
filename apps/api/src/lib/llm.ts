@@ -87,6 +87,117 @@ export async function llmJson<T>(opts: LlmJsonOptions): Promise<T> {
   }
 }
 
+/* ---------- function calling ---------- */
+
+export interface ToolDef {
+  name: string
+  description: string
+  parameters: JsonSchema
+}
+
+export type ToolCall = { name: string; args: Record<string, unknown>; result: unknown }
+
+interface LlmToolsOptions {
+  instructions: string
+  input: Message[]
+  tools: ToolDef[]
+  execute: (name: string, args: Record<string, unknown>) => Promise<unknown>
+  effort?: "minimal" | "low" | "medium" | "high"
+  maxOutputTokens?: number
+  maxRounds?: number
+}
+
+function collectText(payload: any): string {
+  if (typeof payload?.output_text === "string" && payload.output_text.trim()) return payload.output_text
+  const out: string[] = []
+  for (const item of payload?.output ?? []) {
+    if (item?.type !== "message") continue
+    for (const part of item.content ?? []) {
+      if (part?.type === "output_text" && typeof part.text === "string") out.push(part.text)
+      if (part?.type === "refusal") throw new LlmError(`Model refused: ${part.refusal}`)
+    }
+  }
+  return out.join("")
+}
+
+async function postResponses(body: Record<string, unknown>) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), env.AI_TIMEOUT_MS)
+  try {
+    const res = await fetch(endpointUrl(), {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", "api-key": env.AZURE_OPENAI_API_KEY!, Authorization: `Bearer ${env.AZURE_OPENAI_API_KEY!}` },
+      body: JSON.stringify({ model: env.AZURE_OPENAI_DEPLOYMENT, store: false, ...body }),
+    })
+    const text = await res.text()
+    let payload: any = null
+    try {
+      payload = text ? JSON.parse(text) : null
+    } catch {
+      /* non-JSON error body */
+    }
+    if (!res.ok) throw new LlmError(payload?.error?.message ?? `LLM request failed (${res.status})`, res.status, payload ?? text)
+    return payload
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw new LlmError(`LLM request timed out after ${env.AI_TIMEOUT_MS}ms`)
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Agentic loop: the model may call tools, we execute them and feed results back until it answers in text.
+ * Tools are executed server-side, so the final reply is grounded in what actually happened.
+ */
+export async function llmWithTools(opts: LlmToolsOptions): Promise<{ text: string; calls: ToolCall[] }> {
+  if (!llmEnabled) throw new LlmError("LLM is not configured")
+  const input: unknown[] = opts.input.map((m) => ({ role: m.role, content: m.content }))
+  const tools = opts.tools.map((t) => ({ type: "function", name: t.name, description: t.description, parameters: t.parameters, strict: true }))
+  const calls: ToolCall[] = []
+  const maxRounds = opts.maxRounds ?? 4
+
+  for (let round = 0; round < maxRounds; round++) {
+    const payload = await postResponses({
+      instructions: opts.instructions,
+      input,
+      tools,
+      tool_choice: round === maxRounds - 1 ? "none" : "auto",
+      parallel_tool_calls: true,
+      reasoning: { effort: opts.effort ?? "low" },
+      max_output_tokens: opts.maxOutputTokens ?? 1500,
+      // Reasoning items must round-trip between turns when nothing is stored server-side
+      include: ["reasoning.encrypted_content"],
+    })
+    const output: any[] = payload?.output ?? []
+    const functionCalls = output.filter((item) => item?.type === "function_call")
+    const text = collectText(payload)
+    if (!functionCalls.length) {
+      if (!text.trim()) throw new LlmError(payload?.status === "incomplete" ? `LLM response incomplete: ${payload?.incomplete_details?.reason ?? "unknown"}` : "Model returned no text output", undefined, payload)
+      return { text, calls }
+    }
+    input.push(...output)
+    for (const fc of functionCalls) {
+      let args: Record<string, unknown> = {}
+      try {
+        args = fc.arguments ? JSON.parse(fc.arguments) : {}
+      } catch {
+        /* malformed arguments: the tool will reject */
+      }
+      let result: unknown
+      try {
+        result = await opts.execute(fc.name, args)
+      } catch (e) {
+        result = { ok: false, error: (e as Error).message }
+      }
+      calls.push({ name: fc.name, args, result })
+      input.push({ type: "function_call_output", call_id: fc.call_id, output: JSON.stringify(result) })
+    }
+  }
+  throw new LlmError("Tool loop exceeded the maximum number of rounds")
+}
+
 /* ---------- schema helpers (strict mode: every property required, no extras) ---------- */
 export const S = {
   obj: (properties: Record<string, JsonSchema>): JsonSchema => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false }),

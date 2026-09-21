@@ -146,19 +146,21 @@ export const aiRoutes: FastifyPluginAsyncZod = async (app) => {
       current = row
     }
     const history = conversationHistory((current?.messages ?? []) as Array<Record<string, unknown>>)
-    const { source, fallbackReason, ...answer } = (await llm.chat(req.body.message, data, req.body.context ?? {}, history)) as llm.WithSource<import("../lib/welya-ai.js").Reply> & { fallbackReason?: string }
+    const { source, fallbackReason, effects, ...answer } = (await llm.chat(req.body.message, data, req.body.context ?? {}, history, req.log)) as llm.WithSource<import("../lib/welya-ai.js").Reply> & { fallbackReason?: string; effects?: unknown }
     if (source === "rules" && llmEnabled) req.log.warn({ reason: fallbackReason }, "chat fell back to rules")
-    const aiMsg = { id: `a-${randomUUID()}`, role: "assistant", time: new Date().toISOString(), source, ...answer, actions: usablePlanningActions(answer.actions ?? [], data) }
+    // Tools may have changed tasks/events; re-read so planning buttons reflect the new state
+    const after = effects ? await loadUserData(uid) : data
+    const aiMsg = { id: `a-${randomUUID()}`, role: "assistant", time: new Date().toISOString(), source, ...answer, actions: usablePlanningActions(answer.actions ?? [], after) }
 
-    if (!req.body.persist) return { conversation: null, messages: [userMsg, aiMsg] }
+    if (!req.body.persist) return { conversation: null, messages: [userMsg, aiMsg], changed: Boolean(effects) }
 
     if (current) {
       const title = current.messages.length === 0 ? await llm.conversationTitle(req.body.message) : current.title
       const [row] = await db.update(schema.conversations).set({ title, messages: [...current.messages, userMsg, aiMsg], updatedAt: now }).where(eq(schema.conversations.id, current.id)).returning()
-      return { conversation: row, messages: [userMsg, aiMsg] }
+      return { conversation: row, messages: [userMsg, aiMsg], changed: Boolean(effects) }
     }
     const title = await llm.conversationTitle(req.body.message)
     const [row] = await db.insert(schema.conversations).values({ id: randomUUID(), userId: uid, title, messages: [userMsg, aiMsg], updatedAt: now }).returning()
-    return { conversation: row, messages: [userMsg, aiMsg] }
+    return { conversation: row, messages: [userMsg, aiMsg], changed: Boolean(effects) }
   })
 }

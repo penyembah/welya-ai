@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link, useSearchParams } from "react-router-dom"
+import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 import { addDays, addMonths, addWeeks, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameDay, isSameMonth, isToday, startOfMonth } from "date-fns"
 import { cn } from "@/lib/utils"
@@ -19,10 +19,12 @@ import { PageHeader } from "@/components/welya/page-primitives"
 import { ScheduleTimeline, TimelineItem } from "@/components/welya/ScheduleTimeline"
 import { EVENT_TYPE_META, CourseDot } from "@/components/welya/meta"
 import { EventDialog } from "@/components/welya/forms"
+import { EventDetailSheet } from "@/components/welya/EventDetailSheet"
 import { usePlanMutation } from "@/hooks/use-welya-api"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { fmtTime, formatDuration, weekStart } from "@/lib/dates"
+import { withDeadlines } from "@/lib/schedule"
 import { CalendarIcon, CalendarPlusIcon, ChevronLeftIcon, ChevronRightIcon, SparklesIcon } from "lucide-react"
 
 const VIEWS = ["day", "week", "month", "agenda"]
@@ -108,7 +110,7 @@ function PlanDialog({ open, onOpenChange, mode, date }) {
   )
 }
 
-function MonthView({ date, onPickDay, events }) {
+function MonthView({ date, onPickDay, events, onOpen }) {
   const start = weekStart(startOfMonth(date))
   const end = endOfWeek(endOfMonth(date), { weekStartsOn: 1 })
   const days = eachDayOfInterval({ start, end })
@@ -119,22 +121,32 @@ function MonthView({ date, onPickDay, events }) {
       </div>
       <div className="grid grid-cols-7">
         {days.map((d) => {
-          const dayEvents = events.filter((e) => isSameDay(new Date(e.start), d))
+          const dayEvents = events.filter((e) => isSameDay(new Date(e.start), d)).sort((a, b) => new Date(a.start) - new Date(b.start))
           return (
-            <button
+            <div
               key={d.toISOString()}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() => onPickDay(d)}
-              className={cn("flex min-h-24 flex-col gap-1 border-r border-b p-1.5 text-left transition-colors hover:bg-muted/40 [&:nth-child(7n)]:border-r-0", !isSameMonth(d, date) && "bg-muted/20 text-muted-foreground")}
+              onKeyDown={(e) => e.key === "Enter" && onPickDay(d)}
+              className={cn("flex min-h-24 cursor-pointer flex-col gap-1 border-r border-b p-1.5 text-left transition-colors hover:bg-muted/40 [&:nth-child(7n)]:border-r-0", !isSameMonth(d, date) && "bg-muted/20 text-muted-foreground")}
             >
               <span className={cn("inline-flex size-6 items-center justify-center rounded-full text-xs", isToday(d) && "bg-primary font-semibold text-primary-foreground")}>{format(d, "d")}</span>
               <div className="flex flex-col gap-0.5">
                 {dayEvents.slice(0, 3).map((e) => (
-                  <span key={e.id} className={cn("truncate rounded px-1 text-[10px] leading-4", EVENT_TYPE_META[e.type]?.className)}>{e.title}</span>
+                  <button
+                    key={e.id}
+                    type="button"
+                    title={`${fmtTime(e.start)} ${e.title}`}
+                    onClick={(ev) => { ev.stopPropagation(); onOpen(e) }}
+                    className={cn("truncate rounded px-1 text-left text-[10px] leading-4 hover:brightness-95 dark:hover:brightness-110", EVENT_TYPE_META[e.type]?.className)}
+                  >
+                    {e.title}
+                  </button>
                 ))}
                 {dayEvents.length > 3 && <span className="px-1 text-[10px] text-muted-foreground">+{dayEvents.length - 3} more</span>}
               </div>
-            </button>
+            </div>
           )
         })}
       </div>
@@ -142,7 +154,7 @@ function MonthView({ date, onPickDay, events }) {
   )
 }
 
-function WeekView({ date, events, onPickDay }) {
+function WeekView({ date, events, onPickDay, onOpen }) {
   const start = weekStart(date)
   const days = Array.from({ length: 7 }, (_, i) => addDays(start, i))
   return (
@@ -158,10 +170,11 @@ function WeekView({ date, events, onPickDay }) {
             <div className="space-y-1">
               {dayEvents.length === 0 && <p className="py-3 text-center text-[11px] text-muted-foreground">—</p>}
               {dayEvents.map((e) => (
-                <Link key={e.id} to={e.taskId ? `/tasks?task=${e.taskId}` : e.courseId ? `/courses/${e.courseId}` : "#"} className={cn("block rounded-md border px-1.5 py-1 text-[11px] leading-tight hover:brightness-95", EVENT_TYPE_META[e.type]?.className)}>
+                <button key={e.id} type="button" onClick={() => onOpen(e)} className={cn("block w-full rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight hover:brightness-95 dark:hover:brightness-110", EVENT_TYPE_META[e.type]?.className)}>
                   <div className="flex items-center gap-1 font-medium">{fmtTime(e.start)} {e.aiPlanned && <SparklesIcon className="size-2.5" />}</div>
                   <div className="truncate">{e.title}</div>
-                </Link>
+                  {e.location && <div className="truncate opacity-70">{e.location}</div>}
+                </button>
               ))}
             </div>
           </div>
@@ -171,7 +184,7 @@ function WeekView({ date, events, onPickDay }) {
   )
 }
 
-function AgendaView({ date, events }) {
+function AgendaView({ date, events, onOpen }) {
   const days = Array.from({ length: 10 }, (_, i) => addDays(date, i))
   return (
     <div className="space-y-4">
@@ -181,7 +194,7 @@ function AgendaView({ date, events }) {
         return (
           <div key={d.toISOString()} className="grid gap-2 md:grid-cols-[140px_1fr]">
             <div className={cn("text-sm font-medium", isToday(d) && "text-primary")}>{isToday(d) ? "Today" : format(d, "EEEE")}<div className="text-xs font-normal text-muted-foreground">{format(d, "d MMMM")}</div></div>
-            <div className="space-y-1.5">{dayEvents.map((e) => <TimelineItem key={e.id} item={e} />)}</div>
+            <div className="space-y-1.5">{dayEvents.map((e) => <TimelineItem key={e.id} item={e} onOpen={onOpen} />)}</div>
           </div>
         )
       })}
@@ -190,7 +203,7 @@ function AgendaView({ date, events }) {
 }
 
 export default function CalendarPage() {
-  const { events, courses } = useAppStore()
+  const { events, tasks, courses } = useAppStore()
   const [params, setParams] = useSearchParams()
   const loading = useSimulatedLoading()
   const view = VIEWS.includes(params.get("view")) ? params.get("view") : "month"
@@ -198,10 +211,15 @@ export default function CalendarPage() {
   const [eventOpen, setEventOpen] = React.useState(false)
   const [planMode, setPlanMode] = React.useState(null)
   const [typeFilter, setTypeFilter] = React.useState(null)
+  const [selectedId, setSelectedId] = React.useState(null)
 
   const setView = (v) => setParams({ view: v })
   const shift = (dir) => setDate((d) => (view === "month" ? addMonths(d, dir) : view === "week" ? addWeeks(d, dir) : addDays(d, dir)))
-  const visible = typeFilter ? events.filter((e) => e.type === typeFilter) : events
+  const allItems = React.useMemo(() => withDeadlines(events, tasks), [events, tasks])
+  const visible = typeFilter ? allItems.filter((e) => e.type === typeFilter) : allItems
+  // Look the selection up by id so the sheet reflects edits/deletes made while it is open
+  const selected = allItems.find((e) => e.id === selectedId) ?? null
+  const openEvent = (e) => setSelectedId(e.id)
   // Day view asks the planner what it would do with this day's free time
   const dayKey = format(date, "yyyy-MM-dd")
   const planQuery = useQuery({ queryKey: ["ai", "plan", dayKey, events.length], queryFn: () => api.post("/ai/plan", { scope: "day", date: date.toISOString() }), enabled: view === "day", staleTime: 30_000 })
@@ -254,11 +272,11 @@ export default function CalendarPage() {
       {loading ? (
         <Skeleton className="h-96 w-full rounded-xl" />
       ) : view === "month" ? (
-        <MonthView date={date} events={visible} onPickDay={(d) => { setDate(d); setView("day") }} />
+        <MonthView date={date} events={visible} onPickDay={(d) => { setDate(d); setView("day") }} onOpen={openEvent} />
       ) : view === "week" ? (
-        <WeekView date={date} events={visible} onPickDay={(d) => { setDate(d); setView("day") }} />
+        <WeekView date={date} events={visible} onPickDay={(d) => { setDate(d); setView("day") }} onOpen={openEvent} />
       ) : view === "agenda" ? (
-        <AgendaView date={date} events={visible} />
+        <AgendaView date={date} events={visible} onOpen={openEvent} />
       ) : (
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-2">
@@ -266,7 +284,7 @@ export default function CalendarPage() {
               <CardTitle>{isToday(date) ? "Today" : format(date, "EEEE")}</CardTitle>
               <CardDescription>{format(date, "d MMMM yyyy")}</CardDescription>
             </CardHeader>
-            <CardContent><ScheduleTimeline date={date} /></CardContent>
+            <CardContent><ScheduleTimeline date={date} onOpen={openEvent} /></CardContent>
           </Card>
           <Card className="border-primary/20 bg-primary/5">
             <CardHeader>
@@ -289,6 +307,7 @@ export default function CalendarPage() {
       )}
 
       <EventDialog open={eventOpen} onOpenChange={setEventOpen} defaults={{ date }} />
+      <EventDetailSheet event={selected} open={!!selected} onOpenChange={(o) => !o && setSelectedId(null)} />
       <PlanDialog open={!!planMode} onOpenChange={(o) => !o && setPlanMode(null)} mode={planMode} date={date} />
     </div>
   )

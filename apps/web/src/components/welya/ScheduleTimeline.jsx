@@ -6,13 +6,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useAppStore } from "@/store/app-store"
 import { EVENT_TYPE_META, CourseDot } from "@/components/welya/meta"
 import { fmtTime } from "@/lib/dates"
-import { freeSlotsFor } from "@/lib/schedule"
+import { freeSlotsFor, withDeadlines } from "@/lib/schedule"
 import { isSameDay } from "date-fns"
 import { MapPinIcon, SparklesIcon } from "lucide-react"
 
 export function useDayTimeline(date) {
-  const { events } = useAppStore()
-  const dayEvents = events.filter((e) => isSameDay(new Date(e.start), date)).sort((a, b) => new Date(a.start) - new Date(b.start))
+  const { events, tasks } = useAppStore()
+  const dayEvents = withDeadlines(events, tasks).filter((e) => isSameDay(new Date(e.start), date)).sort((a, b) => new Date(a.start) - new Date(b.start))
   const free = freeSlotsFor(date, events).map((s) => ({
     id: `free-${s.start.getTime()}`,
     type: "free",
@@ -23,7 +23,7 @@ export function useDayTimeline(date) {
   return [...dayEvents, ...free].sort((a, b) => new Date(a.start) - new Date(b.start))
 }
 
-export function TimelineItem({ item, compact }) {
+export function TimelineItem({ item, compact, onOpen }) {
   const { courseById, taskById } = useAppStore()
   const meta = EVENT_TYPE_META[item.type] ?? EVENT_TYPE_META.reminder
   const course = courseById[item.courseId]
@@ -31,6 +31,7 @@ export function TimelineItem({ item, compact }) {
   const isNow = new Date(item.start) <= now && new Date(item.end) >= now
   const isPastItem = new Date(item.end) < now
   const isPoint = item.type === "deadline" || item.type === "reminder"
+  const clickable = item.type !== "free"
   const target = item.taskId ? `/tasks?task=${item.taskId}` : course ? `/courses/${course.id}` : null
 
   const content = (
@@ -41,7 +42,7 @@ export function TimelineItem({ item, compact }) {
         item.type === "free" && "border-dashed bg-transparent",
         isPastItem && item.type !== "deadline" && "opacity-60",
         isNow && "ring-2 ring-primary/30",
-        target && "hover:brightness-95 dark:hover:brightness-110"
+        clickable && (onOpen || target) && "hover:brightness-95 dark:hover:brightness-110"
       )}
     >
       <div className="w-12 shrink-0 text-xs font-medium tabular-nums">
@@ -81,6 +82,13 @@ export function TimelineItem({ item, compact }) {
     </div>
   )
 
+  if (clickable && onOpen) {
+    return (
+      <button type="button" className="block w-full text-left" onClick={() => onOpen(item)}>
+        {content}
+      </button>
+    )
+  }
   return target ? (
     <Link to={target} className="block">
       {content}
@@ -90,11 +98,11 @@ export function TimelineItem({ item, compact }) {
   )
 }
 
-export function ScheduleTimeline({ date = new Date(), compact = false, className, emptyText = "Nothing scheduled." }) {
+export function ScheduleTimeline({ date = new Date(), compact = false, className, emptyText = "Nothing scheduled.", onOpen }) {
   const items = useDayTimeline(date)
   return (
     <div className={cn("relative space-y-1.5", className)}>
-      {items.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">{emptyText}</p> : items.map((item) => <TimelineItem key={item.id} item={item} compact={compact} />)}
+      {items.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">{emptyText}</p> : items.map((item) => <TimelineItem key={item.id} item={item} compact={compact} onOpen={onOpen} />)}
     </div>
   )
 }

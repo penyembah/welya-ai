@@ -17,6 +17,7 @@ import { TimelineItem } from "@/components/welya/ScheduleTimeline"
 import { QuickActions } from "@/pages/HomePage"
 import { colorOf, SourceIcon } from "@/components/welya/meta"
 import { fmtDate, relativeDeadline, isOverdue } from "@/lib/dates"
+import { withDeadlines } from "@/lib/schedule"
 import { ArrowLeftIcon, BookOpenIcon, CalendarIcon, ClockIcon, FileTextIcon, LayoutListIcon, MapPinIcon, SparklesIcon, UserIcon } from "lucide-react"
 
 const TABS = ["overview", "tasks", "materials", "notes", "announcements", "calendar", "ai"]
@@ -43,7 +44,7 @@ export default function CourseDetailPage() {
   const materials = documents.filter((d) => d.courseId === id && d.type !== "note")
   const notes = documents.filter((d) => d.courseId === id && d.type === "note")
   const announcements = inboxItems.filter((i) => i.courseId === id).sort((a, b) => new Date(b.receivedAt) - new Date(a.receivedAt))
-  const courseEvents = events.filter((e) => e.courseId === id && new Date(e.start) >= new Date()).sort((a, b) => new Date(a.start) - new Date(b.start))
+  const courseEvents = withDeadlines(events, tasks).filter((e) => e.courseId === id && new Date(e.start) >= new Date()).sort((a, b) => new Date(a.start) - new Date(b.start))
   const next = open[0]
 
   return (

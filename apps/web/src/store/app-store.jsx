@@ -77,6 +77,10 @@ export function reducer(state, action) {
       return { ...state, events: [...state.events, { id: uid(), type: "reminder", ...action.event }] }
     case "event/add-many":
       return { ...state, events: [...state.events, ...action.events.map((e) => ({ id: uid(), ...e }))] }
+    case "event/update":
+      return { ...state, events: state.events.map((e) => (e.id === action.id ? { ...e, ...action.patch } : e)) }
+    case "event/delete":
+      return { ...state, events: state.events.filter((e) => e.id !== action.id) }
     case "inbox/set-status":
       return { ...state, inboxItems: state.inboxItems.map((i) => (i.id === action.id ? { ...i, status: action.status, ...action.patch } : i)) }
     case "inbox/add":

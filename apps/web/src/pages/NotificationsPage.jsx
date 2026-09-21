@@ -8,15 +8,17 @@ import { useAppStore } from "@/store/app-store"
 import { useSimulatedLoading } from "@/hooks/use-simulated-loading"
 import { PageHeader, EmptyState, ListSkeleton } from "@/components/welya/page-primitives"
 import { relativeTime } from "@/lib/dates"
-import { AlertTriangleIcon, BellIcon, BellOffIcon, BookOpenIcon, CalendarIcon, CheckCheckIcon, ClockIcon, InboxIcon, SparklesIcon } from "lucide-react"
+import { AlertTriangleIcon, BellIcon, BellOffIcon, BookOpenIcon, CalendarIcon, CheckCheckIcon, ClockIcon, InboxIcon, LayoutListIcon, LinkIcon, SparklesIcon } from "lucide-react"
 
 const TYPE_META = {
+  task: { label: "Tasks", Icon: LayoutListIcon, className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
   deadline: { label: "Deadline", Icon: ClockIcon, className: "bg-primary/10 text-primary" },
   missed: { label: "Missed", Icon: AlertTriangleIcon, className: "bg-destructive/10 text-destructive" },
   class: { label: "Class", Icon: BookOpenIcon, className: "bg-sky-500/10 text-sky-700 dark:text-sky-300" },
+  calendar: { label: "Calendar", Icon: CalendarIcon, className: "bg-muted text-muted-foreground" },
   ai: { label: "Welya", Icon: SparklesIcon, className: "bg-violet-500/10 text-violet-700 dark:text-violet-300" },
   inbox: { label: "Inbox", Icon: InboxIcon, className: "bg-amber-500/15 text-amber-700 dark:text-amber-300" },
-  calendar: { label: "Calendar", Icon: CalendarIcon, className: "bg-muted text-muted-foreground" },
+  integration: { label: "Integrations", Icon: LinkIcon, className: "bg-rose-500/10 text-rose-700 dark:text-rose-300" },
 }
 
 export default function NotificationsPage() {

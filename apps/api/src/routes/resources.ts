@@ -10,6 +10,7 @@ import { env, llmEnabled, googleEnabled } from "../env.js"
 import { authorizationUrl, deleteGoogleTokens, encodeState, getGoogleTokens, GoogleError, hasScopes, INTEGRATION_SCOPES, isGoogleIntegration, revokeToken } from "../lib/google.js"
 import { SYNCERS } from "../lib/google-sync.js"
 import { deleteEventRemote, deleteTaskRemote, pushEvent, pushTask } from "../lib/google-push.js"
+import { activity } from "../lib/notify.js"
 import { LIMITS } from "../lib/rate-limits.js"
 
 const iso = z.string().datetime({ offset: true })
@@ -135,17 +136,23 @@ export const resourceRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post("/tasks", { schema: { body: taskInput } }, async (req, reply) => {
     const [row] = await db.insert(schema.tasks).values({ ...req.body, id: req.body.id ?? newId(), userId: req.user.sub }).returning()
     void pushTask(req.user.sub, row, req.log)
+    activity.taskCreated(req.user.sub, row, row.source?.type === "assistant" ? "Welya" : undefined, req.log)
     return reply.code(201).send(row)
   })
   app.patch("/tasks/:id", { schema: { params: z.object({ id }), body: taskInput.partial() } }, async (req, reply) => {
+    const [before] = await db.select().from(schema.tasks).where(and(eq(schema.tasks.id, req.params.id), eq(schema.tasks.userId, req.user.sub)))
     const [row] = await db.update(schema.tasks).set(req.body).where(and(eq(schema.tasks.id, req.params.id), eq(schema.tasks.userId, req.user.sub))).returning()
     if (!row) return reply.notFound()
     void pushTask(req.user.sub, row, req.log)
+    activity.taskUpdated(req.user.sub, before, row, req.body, undefined, req.log)
     return row
   })
   app.delete("/tasks/:id", { schema: { params: z.object({ id }) } }, async (req) => {
-    const [row] = await db.delete(schema.tasks).where(and(eq(schema.tasks.id, req.params.id), eq(schema.tasks.userId, req.user.sub))).returning({ id: schema.tasks.id, externalId: schema.tasks.externalId })
-    if (row) void deleteTaskRemote(req.user.sub, row, req.log)
+    const [row] = await db.delete(schema.tasks).where(and(eq(schema.tasks.id, req.params.id), eq(schema.tasks.userId, req.user.sub))).returning({ id: schema.tasks.id, title: schema.tasks.title, externalId: schema.tasks.externalId })
+    if (row) {
+      void deleteTaskRemote(req.user.sub, row, req.log)
+      activity.taskDeleted(req.user.sub, row.title, undefined, req.log)
+    }
     return { ok: true }
   })
 
@@ -155,17 +162,22 @@ export const resourceRoutes: FastifyPluginAsyncZod = async (app) => {
     if (!list.length) return reply.code(201).send([])
     const rows = await db.insert(schema.events).values(list.map((e) => ({ ...e, id: e.id ?? newId(), userId: req.user.sub }))).returning()
     for (const row of rows) void pushEvent(req.user.sub, row, req.log)
+    activity.eventsCreated(req.user.sub, rows, rows.every((r) => r.aiPlanned) ? "Welya" : undefined, req.log)
     return reply.code(201).send(Array.isArray(req.body) ? rows : rows[0])
   })
   app.patch("/events/:id", { schema: { params: z.object({ id }), body: eventInput.partial() } }, async (req, reply) => {
     const [row] = await db.update(schema.events).set(req.body).where(and(eq(schema.events.id, req.params.id), eq(schema.events.userId, req.user.sub))).returning()
     if (!row) return reply.notFound()
     void pushEvent(req.user.sub, row, req.log)
+    activity.eventUpdated(req.user.sub, row, undefined, req.log)
     return row
   })
   app.delete("/events/:id", { schema: { params: z.object({ id }) } }, async (req) => {
-    const [row] = await db.delete(schema.events).where(and(eq(schema.events.id, req.params.id), eq(schema.events.userId, req.user.sub))).returning({ id: schema.events.id, externalId: schema.events.externalId })
-    if (row) void deleteEventRemote(req.user.sub, row, req.log)
+    const [row] = await db.delete(schema.events).where(and(eq(schema.events.id, req.params.id), eq(schema.events.userId, req.user.sub))).returning({ id: schema.events.id, title: schema.events.title, externalId: schema.events.externalId })
+    if (row) {
+      void deleteEventRemote(req.user.sub, row, req.log)
+      activity.eventDeleted(req.user.sub, row.title, undefined, req.log)
+    }
     return { ok: true }
   })
 
@@ -180,6 +192,7 @@ export const resourceRoutes: FastifyPluginAsyncZod = async (app) => {
       values = { ...values, ai: { ...understood.ai, source: understood.source }, courseId: values.courseId ?? understood.courseId, importance: values.importance ?? understood.importance, preview: values.preview ?? (values.body ?? "").slice(0, 100) }
     }
     const [row] = await db.insert(schema.inboxItems).values({ ...values, id: values.id ?? newId(), userId: req.user.sub }).returning()
+    activity.inboxCreated(req.user.sub, row, req.log)
     return reply.code(201).send(row)
   })
   app.patch("/inbox/:id", { schema: { params: z.object({ id }), body: inboxInput.partial() } }, async (req, reply) => {
@@ -190,6 +203,7 @@ export const resourceRoutes: FastifyPluginAsyncZod = async (app) => {
   /* ---------- documents ---------- */
   app.post("/documents", { schema: { body: documentInput } }, async (req, reply) => {
     const [row] = await db.insert(schema.documents).values({ ...req.body, id: req.body.id ?? newId(), userId: req.user.sub }).returning()
+    activity.documentCreated(req.user.sub, row, req.log)
     return reply.code(201).send(row)
   })
   app.patch("/documents/:id", { schema: { params: z.object({ id }), body: documentInput.partial() } }, async (req, reply) => {
@@ -197,7 +211,8 @@ export const resourceRoutes: FastifyPluginAsyncZod = async (app) => {
     return row ?? reply.notFound()
   })
   app.delete("/documents/:id", { schema: { params: z.object({ id }) } }, async (req) => {
-    await db.delete(schema.documents).where(and(eq(schema.documents.id, req.params.id), eq(schema.documents.userId, req.user.sub)))
+    const [row] = await db.delete(schema.documents).where(and(eq(schema.documents.id, req.params.id), eq(schema.documents.userId, req.user.sub))).returning({ title: schema.documents.title })
+    if (row) activity.documentDeleted(req.user.sub, row.title, req.log)
     return { ok: true }
   })
 
@@ -218,28 +233,34 @@ export const resourceRoutes: FastifyPluginAsyncZod = async (app) => {
   /* ---------- workspaces ---------- */
   app.post("/workspaces", { schema: { body: workspaceInput } }, async (req, reply) => {
     const [row] = await db.insert(schema.workspaces).values({ ...req.body, id: req.body.id ?? newId(), userId: req.user.sub }).returning()
+    activity.workspaceCreated(req.user.sub, row, req.log)
     return reply.code(201).send(row)
   })
   app.patch("/workspaces/:id", { schema: { params: z.object({ id }), body: workspaceInput.partial() } }, async (req, reply) => {
     const [row] = await db.update(schema.workspaces).set(req.body).where(and(eq(schema.workspaces.id, req.params.id), eq(schema.workspaces.userId, req.user.sub))).returning()
+    if (row) activity.workspaceUpdated(req.user.sub, row, req.log)
     return row ?? reply.notFound()
   })
   app.delete("/workspaces/:id", { schema: { params: z.object({ id }) } }, async (req) => {
-    await db.delete(schema.workspaces).where(and(eq(schema.workspaces.id, req.params.id), eq(schema.workspaces.userId, req.user.sub)))
+    const [row] = await db.delete(schema.workspaces).where(and(eq(schema.workspaces.id, req.params.id), eq(schema.workspaces.userId, req.user.sub))).returning({ name: schema.workspaces.name })
+    if (row) activity.workspaceDeleted(req.user.sub, row.name, req.log)
     return { ok: true }
   })
 
   /* ---------- courses ---------- */
   app.post("/courses", { schema: { body: courseInput } }, async (req, reply) => {
     const [row] = await db.insert(schema.courses).values({ ...req.body, id: req.body.id ?? newId(), userId: req.user.sub }).returning()
+    activity.courseCreated(req.user.sub, row, req.log)
     return reply.code(201).send(row)
   })
   app.patch("/courses/:id", { schema: { params: z.object({ id }), body: courseInput.partial() } }, async (req, reply) => {
     const [row] = await db.update(schema.courses).set(req.body).where(and(eq(schema.courses.id, req.params.id), eq(schema.courses.userId, req.user.sub))).returning()
+    if (row) activity.courseUpdated(req.user.sub, row, req.log)
     return row ?? reply.notFound()
   })
   app.delete("/courses/:id", { schema: { params: z.object({ id }) } }, async (req) => {
-    await db.delete(schema.courses).where(and(eq(schema.courses.id, req.params.id), eq(schema.courses.userId, req.user.sub)))
+    const [row] = await db.delete(schema.courses).where(and(eq(schema.courses.id, req.params.id), eq(schema.courses.userId, req.user.sub))).returning({ name: schema.courses.name })
+    if (row) activity.courseDeleted(req.user.sub, row.name, req.log)
     return { ok: true }
   })
 

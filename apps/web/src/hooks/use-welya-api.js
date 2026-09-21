@@ -40,7 +40,8 @@ export function useChatMutation() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ message, conversationId, context, persist = true }) => api.post("/ai/chat", { message, conversationId, context, persist }),
-    onSuccess: (data) => data.conversation && qc.invalidateQueries({ queryKey: BOOTSTRAP_KEY }),
+    // The assistant may have created/changed tasks or events server-side
+    onSuccess: (data) => (data.conversation || data.changed) && qc.invalidateQueries({ queryKey: BOOTSTRAP_KEY }),
   })
 }
 

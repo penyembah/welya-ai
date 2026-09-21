@@ -213,10 +213,20 @@ const scheduleFromHistory = (history: Array<{ role: string; content: string }>) 
   return []
 }
 
+// Safety net when a title echoes the request verbatim: drop leading verbs/filler, capitalise, trim quotes and trailing punctuation.
+const TITLE_LEAD_IN = /^(?:(?:tolong|please|coba|bisa|mohon)\s+)?(?:buat(?:kan|lah)?|membuat|bikin|create|make|add|tambah(?:kan)?)\s+(?:sebuah\s+|satu\s+|a\s+|an\s+)?(?:tugas|task)?\s*(?:dengan\s+judul|berjudul|titled|called|named)?\s*/i
+export function cleanTaskTitle(raw: string): string {
+  let t = raw.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().replace(/^["'“‘]+|["'”’]+$/g, "")
+  t = t.replace(TITLE_LEAD_IN, "").replace(/^(?:untuk\s+)?(?:membuat|buat)\s+/i, "")
+  t = t.replace(/\s*[.!]+$/, "").trim()
+  if (!t) return ""
+  return (t.charAt(0).toUpperCase() + t.slice(1)).slice(0, 200)
+}
+
 function taskDraftFromConversation(prompt: string, history: Array<{ role: string; content: string }>) {
   const all = `${historyText(history)}\n${prompt}`
   const titleMatch = all.match(/(?:task|tugas)\s+(?:tugas\s+)?(.+?)(?=\s+(?:deadline|due|satu minggu|minggu depan|dengan)|[\n,.]|$)/i)
-  const title = titleMatch?.[1]?.trim() || "New academic task"
+  const title = cleanTaskTitle(titleMatch?.[1] ?? "") || "New academic task"
   const dateMatch = all.match(/(?:deadline|due)\s+(?:tanggal\s+)?(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?/i)
   let deadline = addDays(new Date(), 7)
   if (dateMatch) {
@@ -225,7 +235,7 @@ function taskDraftFromConversation(prompt: string, history: Array<{ role: string
   }
   const durationMatch = all.match(/(\d+)\s*(?:jam|hours?)/i)
   const estimatedMinutes = durationMatch ? Number(durationMatch[1]) * 60 : 360
-  return { title: title.charAt(0).toUpperCase() + title.slice(1), deadline: deadline.toISOString(), estimatedMinutes }
+  return { title, deadline: deadline.toISOString(), estimatedMinutes }
 }
 
 export function generateReply(prompt: string, data: UserData, context: ChatContext = {}, history: Array<{ role: string; content: string }> = []): Reply {

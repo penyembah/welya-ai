@@ -15,7 +15,7 @@ import { isDueToday, isOverdue } from "@/lib/dates"
 import { addDays } from "date-fns"
 import { AlertTriangleIcon, CheckCircle2Icon, LayoutListIcon, PlusIcon, SearchIcon, TimerIcon, XIcon } from "lucide-react"
 
-const VIEWS = ["today", "upcoming", "overdue", "completed", "all"]
+const VIEWS = ["all", "today", "upcoming", "overdue", "completed"]
 const ANY = "any"
 const PRIORITY_ITEMS = { [ANY]: "Any priority", high: "High", medium: "Medium", low: "Low" }
 const STATUS_ITEMS = { [ANY]: "Any status", todo: "To do", "in-progress": "In progress", done: "Done" }
@@ -33,7 +33,7 @@ export default function TasksPage() {
   const [sort, setSort] = React.useState("deadline")
   const [newOpen, setNewOpen] = React.useState(false)
 
-  const view = VIEWS.includes(params.get("view")) ? params.get("view") : "today"
+  const view = VIEWS.includes(params.get("view")) ? params.get("view") : "all"
   const selectedTaskId = params.get("task")
   const setView = (v) => setParams((p) => { p.set("view", v); p.delete("task"); return p })
   const openTask = (t) => setParams((p) => { p.set("task", t.id); return p })

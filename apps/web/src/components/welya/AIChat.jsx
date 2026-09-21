@@ -14,7 +14,7 @@ import { useAppStore } from "@/store/app-store"
 import { WelyaLogo } from "@/components/welya/WelyaLogo"
 import { Markdown } from "@/components/welya/Markdown"
 import { useBreakdownMutation, useChatImageMutation, useChatMutation, usePlanMutation } from "@/hooks/use-welya-api"
-import { fmtTime } from "@/lib/dates"
+import { fmtDateTime, fmtTime } from "@/lib/dates"
 import { extractScheduleRows, DAY_INDEX, parseClock } from "@/lib/schedule-rows"
 import { ArrowUpIcon, CalendarPlusIcon, CheckIcon, FileTextIcon, ImageIcon, InboxIcon, LayoutListIcon, SparklesIcon, XIcon } from "lucide-react"
 
@@ -123,13 +123,42 @@ export function useWelyaActions() {
               deadline,
               estimatedMinutes: Number.isFinite(action.estimatedMinutes) ? action.estimatedMinutes : 360,
               priority: ["high", "medium", "low"].includes(action.priority) ? action.priority : "medium",
-              courseId: null,
+              courseId: courses.some((c) => c.id === action.courseId) ? action.courseId : null,
               workspaceId: null,
               source: { type: "assistant", label: "Created from AI Assistant" },
             },
           })
           toast.success("Task created", { description: action.title })
           navigate("/tasks")
+          return true
+        }
+        case "create-event": {
+          const start = new Date(action.start)
+          if (!action.title || Number.isNaN(start.getTime())) {
+            navigate("/calendar")
+            return false
+          }
+          const endParsed = new Date(action.end)
+          const end = Number.isNaN(endParsed.getTime()) || endParsed <= start ? new Date(start.getTime() + 60 * 60_000) : endParsed
+          const duplicate = events.some((e) => e.title.toLowerCase() === action.title.toLowerCase() && new Date(e.start).getTime() === start.getTime())
+          if (duplicate) {
+            toast.info("That event is already on your calendar.")
+            return true
+          }
+          await dispatch({
+            type: "event/add",
+            event: {
+              title: action.title,
+              type: action.eventType ?? "meeting",
+              start: start.toISOString(),
+              end: end.toISOString(),
+              location: action.location ?? null,
+              courseId: courses.some((c) => c.id === action.courseId) ? action.courseId : null,
+              aiPlanned: false,
+            },
+          })
+          toast.success("Event added to your calendar", { description: `${action.title} · ${fmtDateTime(start.toISOString())}` })
+          navigate("/calendar?view=week")
           return true
         }
         default:
@@ -242,7 +271,7 @@ export function ChatMessage({ message, onAction, onPrompt }) {
                 onClick={() => {
                   if (a.kind === "prompt") return onPrompt?.(a.label ?? a.prompt)
                   Promise.resolve(onAction?.({ ...a, messageContent: message.content })).then((completed) => {
-                    if (completed !== false && ["plan", "plan-week", "schedule-courses", "create-task", "breakdown"].includes(a.kind)) setDone((d) => ({ ...d, [i]: true }))
+                    if (completed !== false && ["plan", "plan-week", "schedule-courses", "create-task", "create-event", "breakdown"].includes(a.kind)) setDone((d) => ({ ...d, [i]: true }))
                   }).catch((error) => toast.error("Welya couldn't complete that action", { description: error.message }))
                 }}
               >

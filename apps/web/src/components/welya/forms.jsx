@@ -139,9 +139,12 @@ const taskSchema = z.object({
   estimatedMinutes: z.coerce.number().min(5, "At least 5 minutes").max(1440),
 })
 
-export function TaskDialog({ open, onOpenChange, defaults = {}, onCreated }) {
+// Pass `task` to edit an existing task instead of creating one.
+export function TaskDialog({ open, onOpenChange, defaults = {}, task, onCreated }) {
   const { dispatch, workspaces } = useAppStore()
   const [pending, run] = useAsyncAction()
+  const editing = Boolean(task)
+  const taskValues = task ? { title: task.title, description: task.description ?? "", courseId: task.courseId ?? null, workspaceId: task.workspaceId ?? null, deadline: new Date(task.deadline), priority: task.priority, estimatedMinutes: task.estimatedMinutes ?? 60 } : {}
   const form = useForm({
     resolver: zodResolver(taskSchema),
     defaultValues: {
@@ -153,21 +156,27 @@ export function TaskDialog({ open, onOpenChange, defaults = {}, onCreated }) {
       priority: "medium",
       estimatedMinutes: 60,
       ...defaults,
+      ...taskValues,
     },
   })
 
   React.useEffect(() => {
-    if (open) form.reset({ ...form.formState.defaultValues, ...defaults })
+    if (open) form.reset({ ...form.formState.defaultValues, ...defaults, ...taskValues })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [open, task?.id])
 
   const onSubmit = (values) =>
     run(async () => {
-      await dispatch({
-        type: "task/add",
-        task: { ...values, deadline: values.deadline.toISOString(), source: defaults.source ?? { type: "manual", label: "Added manually" } },
-      })
-      toast.success("Task created", { description: values.title })
+      if (editing) {
+        await dispatch({ type: "task/update", id: task.id, patch: { ...values, description: values.description ?? "", deadline: values.deadline.toISOString() } })
+        toast.success("Task updated", { description: values.title })
+      } else {
+        await dispatch({
+          type: "task/add",
+          task: { ...values, deadline: values.deadline.toISOString(), source: defaults.source ?? { type: "manual", label: "Added manually" } },
+        })
+        toast.success("Task created", { description: values.title })
+      }
       onOpenChange(false)
       onCreated?.()
     })
@@ -176,8 +185,8 @@ export function TaskDialog({ open, onOpenChange, defaults = {}, onCreated }) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>New task</DialogTitle>
-          <DialogDescription>Welya will link it to your course, calendar and reminders.</DialogDescription>
+          <DialogTitle>{editing ? "Edit task" : "New task"}</DialogTitle>
+          <DialogDescription>{editing ? "Changes sync to your calendar, reminders and Google Tasks." : "Welya will link it to your course, calendar and reminders."}</DialogDescription>
         </DialogHeader>
         <form id="task-form" noValidate onSubmit={form.handleSubmit(onSubmit)}>
           <FieldGroup className="gap-4">
@@ -220,7 +229,7 @@ export function TaskDialog({ open, onOpenChange, defaults = {}, onCreated }) {
         <DialogFooter showCloseButton>
           <Button type="submit" form="task-form" disabled={pending}>
             {pending ? <Spinner data-icon="inline-start" /> : <SparklesIcon data-icon="inline-start" />}
-            Create task
+            {editing ? "Save changes" : "Create task"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -240,10 +249,13 @@ const eventSchema = z.object({
 
 const EVENT_TYPE_ITEMS = { class: "Class", meeting: "Meeting", reminder: "Reminder", "work-session": "Work session", deadline: "Deadline" }
 
-export function EventDialog({ open, onOpenChange, defaults = {} }) {
+// Pass `event` to edit an existing event instead of creating one.
+export function EventDialog({ open, onOpenChange, defaults = {}, event }) {
   const { dispatch } = useAppStore()
   const [pending, run] = useAsyncAction()
-  const normalizedDefaults = { ...defaults, ...(defaults.date ? { date: asDate(defaults.date) } : {}) }
+  const editing = Boolean(event)
+  const eventValues = event ? { title: event.title, type: event.type ?? "meeting", courseId: event.courseId ?? null, date: new Date(event.start), start: format(new Date(event.start), "HH:mm"), end: format(new Date(event.end), "HH:mm"), location: event.location ?? "" } : {}
+  const normalizedDefaults = { ...defaults, ...(defaults.date ? { date: asDate(defaults.date) } : {}), ...eventValues }
   const form = useForm({
     resolver: zodResolver(eventSchema),
     defaultValues: {
@@ -261,22 +273,25 @@ export function EventDialog({ open, onOpenChange, defaults = {} }) {
   React.useEffect(() => {
     if (open) form.reset({ ...form.formState.defaultValues, ...normalizedDefaults })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [open, event?.id])
 
   const onSubmit = (values) =>
     run(async () => {
-      await dispatch({
-        type: "event/add",
-        event: {
-          title: values.title,
-          type: values.type,
-          courseId: values.courseId,
-          location: values.location,
-          start: new Date(`${format(values.date, "yyyy-MM-dd")}T${values.start}`).toISOString(),
-          end: new Date(`${format(values.date, "yyyy-MM-dd")}T${values.end}`).toISOString(),
-        },
-      })
-      toast.success("Event added to calendar", { description: values.title })
+      const payload = {
+        title: values.title,
+        type: values.type,
+        courseId: values.courseId,
+        location: values.location || null,
+        start: new Date(`${format(values.date, "yyyy-MM-dd")}T${values.start}`).toISOString(),
+        end: new Date(`${format(values.date, "yyyy-MM-dd")}T${values.end}`).toISOString(),
+      }
+      if (editing) {
+        await dispatch({ type: "event/update", id: event.id, patch: payload })
+        toast.success("Event updated", { description: values.title })
+      } else {
+        await dispatch({ type: "event/add", event: payload })
+        toast.success("Event added to calendar", { description: values.title })
+      }
       onOpenChange(false)
     })
 
@@ -284,8 +299,8 @@ export function EventDialog({ open, onOpenChange, defaults = {} }) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>New event</DialogTitle>
-          <DialogDescription>Add a class, meeting or reminder to your calendar.</DialogDescription>
+          <DialogTitle>{editing ? "Edit event" : "New event"}</DialogTitle>
+          <DialogDescription>{editing ? "Changes sync to Google Calendar when connected." : "Add a class, meeting or reminder to your calendar."}</DialogDescription>
         </DialogHeader>
         <form id="event-form" noValidate onSubmit={form.handleSubmit(onSubmit)}>
           <FieldGroup className="gap-4">
@@ -331,7 +346,7 @@ export function EventDialog({ open, onOpenChange, defaults = {} }) {
         <DialogFooter showCloseButton>
           <Button type="submit" form="event-form" disabled={pending}>
             {pending && <Spinner data-icon="inline-start" />}
-            Add event
+            {editing ? "Save changes" : "Add event"}
           </Button>
         </DialogFooter>
       </DialogContent>

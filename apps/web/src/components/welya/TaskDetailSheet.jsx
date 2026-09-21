@@ -22,12 +22,12 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useAppStore } from "@/store/app-store"
 import { CourseDot, PriorityBadge, SourceBadge, StatusBadge } from "@/components/welya/meta"
-import { PrioritySelect } from "@/components/welya/forms"
+import { PrioritySelect, TaskDialog } from "@/components/welya/forms"
 import { TaskBreakdown, SubtaskList } from "@/components/welya/TaskBreakdown"
 import { fmtDateTime, formatDuration, isOverdue, relativeDeadline } from "@/lib/dates"
 import { usePlanMutation } from "@/hooks/use-welya-api"
 import { addDays } from "date-fns"
-import { CalendarPlusIcon, CheckIcon, ClockIcon, FileTextIcon, PaperclipIcon, Trash2Icon, UndoIcon } from "lucide-react"
+import { CalendarPlusIcon, CheckIcon, ClockIcon, FileTextIcon, PaperclipIcon, PencilIcon, Trash2Icon, UndoIcon } from "lucide-react"
 
 function InfoRow({ label, children }) {
   return (
@@ -42,6 +42,7 @@ export function TaskDetailSheet({ taskId, open, onOpenChange }) {
   const { taskById, courseById, workspaceById, documents, dispatch } = useAppStore()
   const task = taskById[taskId]
   const [confirmDelete, setConfirmDelete] = React.useState(false)
+  const [editOpen, setEditOpen] = React.useState(false)
   const plan = usePlanMutation()
 
   if (!task) return null
@@ -94,6 +95,9 @@ export function TaskDetailSheet({ taskId, open, onOpenChange }) {
                   <CalendarPlusIcon data-icon="inline-start" /> {plan.isPending ? "Finding a slot…" : "Schedule time"}
                 </Button>
               )}
+              <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+                <PencilIcon data-icon="inline-start" /> Edit
+              </Button>
               <Button size="sm" variant="ghost" className="ml-auto text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)}>
                 <Trash2Icon data-icon="inline-start" /> Delete
               </Button>
@@ -216,6 +220,8 @@ export function TaskDetailSheet({ taskId, open, onOpenChange }) {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <TaskDialog open={editOpen} onOpenChange={setEditOpen} task={task} />
       </SheetContent>
     </Sheet>
   )
