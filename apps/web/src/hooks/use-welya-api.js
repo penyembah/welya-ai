@@ -91,7 +91,7 @@ export function useAvatarMutation() {
 export function useIntegrationMutation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, action }) => api.post(`/integrations/${id}/${action}`, {}),
+    mutationFn: ({ id, action, body }) => api.post(`/integrations/${id}/${action}`, body ?? {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: BOOTSTRAP_KEY }),
   })
 }

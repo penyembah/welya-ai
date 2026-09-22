@@ -73,6 +73,7 @@ Useful: `npm run docker:logs`, `docker compose -f docker-compose.prod.yml --env-
 - Local build: `npm run tauri -w @welya/web -- build` (needs Rust + MSVC Build Tools + WebView2 on Windows). Installers land in `apps/web/src-tauri/target/release/bundle/{msi,nsis}`. The API URL is baked in from `apps/web/.env.production`.
 - Publish: bump `version` in `apps/web/package.json`, `apps/web/src-tauri/tauri.conf.json` and `apps/web/src-tauri/Cargo.toml`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. `.github/workflows/release.yml` builds Windows (.msi/.exe), macOS (.dmg, arm64 + x64) and Linux (.AppImage/.deb) and attaches them to a GitHub Release named `Welya AI vX.Y.Z`.
 - The landing `/download` page reads `https://api.github.com/repos/<NEXT_PUBLIC_GITHUB_REPO>/releases/latest` (cached 1 h) and links each platform button straight to the asset's `browser_download_url`, so no redeploy is needed after a release. Set `GITHUB_TOKEN` on Vercel only if you hit the unauthenticated API rate limit.
+- Desktop OAuth: Google blocks sign-in inside webviews, so the app opens the system browser with `?client=desktop`; the API answers with a page that opens `welya://auth/callback?code=…` (or `welya://integrations/callback?connected=…`). The app swaps the one-time code at `POST /api/auth/exchange`, which sets the refresh cookie in the webview. The `welya://` scheme is registered by the installers (and by `register_all()` in dev builds).
 
 ## How data flows
 

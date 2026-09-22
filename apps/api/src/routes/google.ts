@@ -14,23 +14,36 @@ import { createSession } from "../lib/sessions.js"
 const callbackQuery = z.object({ code: z.string().optional(), state: z.string().optional(), error: z.string().optional() })
 const pathOf = (url: string) => new URL(url).pathname
 
+export const DESKTOP_SCHEME = "welya"
+const deepLink = (path: string, params: Record<string, string>) => `${DESKTOP_SCHEME}://${path}?${new URLSearchParams(params)}`
+
+// Browsers only open custom schemes from a page, not from a 302, so hand the desktop app its deep link via a tiny page.
+function deepLinkPage(url: string, ok: boolean) {
+  const safe = url.replace(/"/g, "&quot;")
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Welya AI</title><meta name="color-scheme" content="dark">
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#151b1d;color:#e6ecee;font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}main{max-width:26rem;padding:2rem;text-align:center}h1{font-size:1.25rem;margin:0 0 .5rem}p{margin:0 0 1.25rem;color:#9fb0b5}a{display:inline-block;padding:.6rem 1.1rem;border-radius:.6rem;background:#e6ecee;color:#151b1d;font-weight:600;text-decoration:none}</style></head>
+<body><main><h1>${ok ? "Returning to Welya AI…" : "Sign-in didn't complete"}</h1><p>${ok ? "You can close this tab once the app opens." : "Go back to the app and try again."}</p><a href="${safe}">Open Welya AI</a></main>
+<script>location.replace("${safe}")</script></body></html>`
+}
+
 // Public OAuth endpoints. Callback paths come from the redirect URIs registered in Google Cloud Console.
 export const googleRoutes: FastifyPluginAsyncZod = async (app) => {
   const toApp = (path: string, params: Record<string, string>) => `${env.APP_URL}${path}${Object.keys(params).length ? `?${new URLSearchParams(params)}` : ""}`
 
   /* ---------- Sign in / sign up with Google ---------- */
 
-  app.get("/api/auth/google", { config: LIMITS.oauth }, async (_req, reply) => {
+  app.get("/api/auth/google", { config: LIMITS.oauth, schema: { querystring: z.object({ client: z.enum(["desktop"]).optional() }) } }, async (req, reply) => {
     if (!googleEnabled) return reply.code(503).send({ message: "Google sign-in is not configured on this server." })
-    const state = encodeState({ purpose: "login" })
+    const state = encodeState({ purpose: "login", ...(req.query.client ? { client: req.query.client } : {}) })
     return reply.redirect(authorizationUrl({ scopes: [], state, redirectUri: env.GOOGLE_REDIRECT_URI }))
   })
 
   app.get(pathOf(env.GOOGLE_REDIRECT_URI), { config: LIMITS.oauth, schema: { querystring: callbackQuery } }, async (req, reply) => {
     const { code, state: rawState, error } = req.query
-    const fail = (reason: string) => reply.redirect(toApp("/login", { error: reason }))
-    if (error) return fail(error === "access_denied" ? "google_denied" : "google")
     const state = rawState ? decodeState(rawState) : null
+    const desktop = state?.client === "desktop"
+    const fail = (reason: string) => (desktop ? reply.type("text/html").send(deepLinkPage(deepLink("auth/callback", { error: reason }), false)) : reply.redirect(toApp("/login", { error: reason })))
+    if (error) return fail(error === "access_denied" ? "google_denied" : "google")
     if (!code || !state || state.purpose !== "login") return fail("google_state")
 
     try {
@@ -53,6 +66,13 @@ export const googleRoutes: FastifyPluginAsyncZod = async (app) => {
         }
       }
 
+      if (desktop) {
+        // The system browser can't hand the app a cookie, so it gets a 2-minute one-time code to swap for a session in-app
+        const oneTime = randomUUID().replace(/-/g, "")
+        await db.insert(schema.verificationCodes).values({ id: randomUUID(), userId: user.id, type: "desktop-login", code: oneTime, expiresAt: new Date(Date.now() + 2 * 60_000).toISOString() })
+        return reply.type("text/html").send(deepLinkPage(deepLink("auth/callback", { code: oneTime }), true))
+      }
+
       const token = await createSession(app, user, req, reply)
       // Fragment keeps the token out of server logs and Referer headers
       return reply.redirect(`${env.APP_URL}/auth/callback#token=${encodeURIComponent(token)}`)
@@ -68,7 +88,9 @@ export const googleRoutes: FastifyPluginAsyncZod = async (app) => {
     const { code, state: rawState, error } = req.query
     const state = rawState ? decodeState(rawState) : null
     const integration = state?.purpose === "integration" ? state.integration : "google"
-    const fail = (reason: string) => reply.redirect(toApp("/settings/integrations", { error: reason, integration }))
+    const desktop = state?.client === "desktop"
+    const back = (params: Record<string, string>, ok: boolean) => (desktop ? reply.type("text/html").send(deepLinkPage(deepLink("integrations/callback", params), ok)) : reply.redirect(toApp("/settings/integrations", params)))
+    const fail = (reason: string) => back({ error: reason, integration }, false)
     if (error) return fail(error === "access_denied" ? "denied" : "google")
     if (!code || !state || state.purpose !== "integration" || !(state.integration in INTEGRATION_SCOPES)) return fail("state")
 
@@ -87,7 +109,7 @@ export const googleRoutes: FastifyPluginAsyncZod = async (app) => {
         .then((r) => db.update(schema.integrations).set({ lastSync: new Date().toISOString() }).where(where).then(() => app.log.info({ integration: state.integration, ...r }, "initial google sync")))
         .catch((err) => app.log.error({ err, integration: state.integration }, "initial google sync failed"))
 
-      return reply.redirect(toApp("/settings/integrations", { connected: state.integration }))
+      return back({ connected: state.integration }, true)
     } catch (err) {
       req.log.error({ err }, "google integration connect failed")
       return fail("google")

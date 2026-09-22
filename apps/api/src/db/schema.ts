@@ -57,7 +57,7 @@ export const sessions = pgTable(
 export const verificationCodes = pgTable("verification_codes", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  type: text("type").$type<"verify" | "reset" | "email-change">().notNull(),
+  type: text("type").$type<"verify" | "reset" | "email-change" | "desktop-login">().notNull(),
   code: text("code").notNull(),
   expiresAt: ts("expires_at").notNull(),
   usedAt: ts("used_at"),

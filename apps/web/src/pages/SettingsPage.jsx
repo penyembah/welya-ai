@@ -22,6 +22,7 @@ import { useAuth } from "@/store/auth"
 import { useAsyncAction } from "@/hooks/use-simulated-loading"
 import { useAvatarMutation, useIntegrationMutation, downloadExport } from "@/hooks/use-welya-api"
 import { api, API_URL } from "@/lib/api"
+import { isTauri, openExternal } from "@/lib/tauri"
 import { PageHeader } from "@/components/welya/page-primitives"
 import { relativeTime, fmtDate } from "@/lib/dates"
 import { BellIcon, CalendarIcon, CheckCircle2Icon, KeyRoundIcon, LinkIcon, ListChecksIcon, LogOutIcon, MailIcon, MonitorIcon, MoonIcon, PaletteIcon, PlugIcon, RefreshCwIcon, SchoolIcon, ShieldIcon, SparklesIcon, SunIcon, UserIcon } from "lucide-react"
@@ -534,21 +535,25 @@ function IntegrationCard({ integration }) {
   const pending = action.isPending
   const isGoogle = GOOGLE_IDS.has(integration.id)
 
-  const run = async (kind, onOk) => {
+  const run = async (kind, onOk, body) => {
     try {
-      const res = await action.mutateAsync({ id: integration.id, action: kind })
+      const res = await action.mutateAsync({ id: integration.id, action: kind, body })
       onOk?.(res)
     } catch (e) {
       toast.error(`Couldn't ${kind} ${integration.name}`, { description: e.message })
     }
   }
-  // Google returns an OAuth URL: leave the app, Google sends us back to /settings/integrations
+  // Google returns an OAuth URL. Web: leave the app and come back to /settings/integrations.
+  // Desktop: open the system browser; the API deep-links back to welya://integrations/callback.
   const connect = () =>
     run("connect", (res) => {
-      if (res?.authUrl) return window.location.assign(res.authUrl)
+      if (res?.authUrl) {
+        if (isTauri()) toast.info("Continue in your browser", { description: "Finish connecting Google there; Welya will pick it up automatically." })
+        return openExternal(res.authUrl)
+      }
       toast.success(`${integration.name} connected`, { description: "Importing in the background…" })
       setConnectOpen(false)
-    })
+    }, isTauri() ? { client: "desktop" } : undefined)
   const disconnect = () => run("disconnect", () => { toast(`${integration.name} disconnected`); setManageOpen(false) })
   const sync = () => run("sync", (res) => toast.success(`${integration.name} synced`, { description: describeSync(res?.result) }))
   const waitlist = () => run("waitlist", () => toast.success("We'll let you know", { description: `You're on the waitlist for ${integration.name}.` }))
@@ -614,7 +619,7 @@ export function IntegrationsSettings() {
   const [params, setParams] = useSearchParams()
   const connected = integrations.filter((i) => i.status === "connected").length
 
-  // Back from the Google consent screen (see apps/api routes/google.ts)
+  // Back from the Google consent screen (see apps/api routes/google.ts). On desktop the deep-link listener in App.jsx puts the same params in the URL.
   React.useEffect(() => {
     const ok = params.get("connected")
     const err = params.get("error")
@@ -622,6 +627,7 @@ export function IntegrationsSettings() {
     const name = integrations.find((i) => i.id === (ok ?? params.get("integration")))?.name ?? "Google"
     if (ok) {
       toast.success(`${name} connected`, { description: "Welya is importing your data in the background. This can take a minute." })
+      refetch?.()
       const t = setTimeout(() => refetch?.(), 8000)
       setParams({}, { replace: true })
       return () => clearTimeout(t)
@@ -629,7 +635,7 @@ export function IntegrationsSettings() {
     toast.error(`Couldn't connect ${name}`, { description: CONNECT_ERRORS[err] ?? CONNECT_ERRORS.google })
     setParams({}, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [params])
 
   return (
     <div className="space-y-4">

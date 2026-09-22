@@ -51,7 +51,8 @@ Prioritised backlog from the gap review on 2026-09-20. Tick items as they land; 
 - [ ] **Observability**: Sentry (API + web + landing), request IDs, per-user token/cost metrics for Azure calls, alert on `source: "rules"` fallback rate.
 - [ ] **Performance**: paginate `/bootstrap` sections that grow (inbox, notifications, conversations); virtualise long lists.
 - [x] **Desktop release pipeline**: `.github/workflows/release.yml` (tauri-action) builds Windows/macOS/Linux installers on `v*` tags and publishes a GitHub Release.
-- [ ] **Tauri desktop**: OAuth via system browser + deep link (`welya://auth/callback`) since Google blocks embedded webviews; auto-updater; signed builds.
+- [x] **Tauri desktop OAuth**: Google sign-in and integration connect open the system browser (`client=desktop`); the API returns via `welya://auth/callback?code=…` (one-time code swapped at `POST /auth/exchange` so the refresh cookie lands in the webview) and `welya://integrations/callback`. Plugins: deep-link + single-instance.
+- [ ] **Tauri desktop**: auto-updater (`tauri-plugin-updater` + `createUpdaterArtifacts`, needs a signing keypair in GitHub secrets and a public `latest.json` — blocked while the repo is private) and code-signed builds (Windows cert / Apple Developer ID).
 - [x] **Account**: change password / set password for Google-only accounts, change email with re-verification (code to the new address, old address notified, other sessions revoked), active sessions list with per-device revoke and "sign out other devices".
 
 ## P5 — Landing site

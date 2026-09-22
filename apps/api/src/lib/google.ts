@@ -21,8 +21,9 @@ export const isGoogleIntegration = (id: string) => id in INTEGRATION_SCOPES
 
 /* ---------- signed state (CSRF protection for the OAuth round trip) ---------- */
 
-type LoginState = { purpose: "login"; nonce: string; exp: number }
-type IntegrationState = { purpose: "integration"; userId: string; integration: string; nonce: string; exp: number }
+// client="desktop" means the flow started from the Tauri app in the system browser: results go back via welya:// deep links
+type LoginState = { purpose: "login"; client?: "desktop"; nonce: string; exp: number }
+type IntegrationState = { purpose: "integration"; userId: string; integration: string; client?: "desktop"; nonce: string; exp: number }
 export type OAuthState = LoginState | IntegrationState
 
 const b64 = (s: string | Buffer) => Buffer.from(s).toString("base64url")

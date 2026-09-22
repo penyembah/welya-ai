@@ -272,7 +272,7 @@ export const resourceRoutes: FastifyPluginAsyncZod = async (app) => {
     return row ?? reply.notFound()
   })
   // Google services: returns an OAuth URL the client must navigate to. The callback in routes/google.ts finishes the connection.
-  app.post("/integrations/:id/connect", { config: LIMITS.connect, schema: { params: z.object({ id }), body: z.object({ account: z.string().email().optional() }).nullable().optional() } }, async (req, reply) => {
+  app.post("/integrations/:id/connect", { config: LIMITS.connect, schema: { params: z.object({ id }), body: z.object({ account: z.string().email().optional(), client: z.enum(["desktop"]).optional() }).nullable().optional() } }, async (req, reply) => {
     const [current] = await db.select().from(schema.integrations).where(integrationWhere(req.user.sub, req.params.id))
     if (!current) return reply.notFound()
     if (current.status === "coming-soon") return reply.badRequest("This integration isn't available yet.")
@@ -288,7 +288,7 @@ export const resourceRoutes: FastifyPluginAsyncZod = async (app) => {
         .catch((err) => req.log.error({ err }, "initial sync failed"))
       return row
     }
-    const state = encodeState({ purpose: "integration", userId: req.user.sub, integration: current.id })
+    const state = encodeState({ purpose: "integration", userId: req.user.sub, integration: current.id, ...(req.body?.client ? { client: req.body.client } : {}) })
     const authUrl = authorizationUrl({ scopes: INTEGRATION_SCOPES[current.id], state, redirectUri: env.GOOGLE_INTEGRATION_REDIRECT_URI, loginHint: tokens?.email ?? req.user.email, consent: true })
     return { ...current, authUrl }
   })

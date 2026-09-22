@@ -1,4 +1,6 @@
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router-dom"
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom"
+import * as React from "react"
+import { toast } from "sonner"
 import { ThemeProvider } from "next-themes"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
@@ -24,6 +26,7 @@ import DocumentsPage from "@/pages/DocumentsPage"
 import NotificationsPage from "@/pages/NotificationsPage"
 import ReviewPage from "@/pages/ReviewPage"
 import { SettingsLayout, AccountSettings, AISettings, NotificationSettings, AppearanceSettings, PrivacySettings, IntegrationsSettings } from "@/pages/SettingsPage"
+import { listenDeepLinks } from "@/lib/tauri"
 import { CompassIcon } from "lucide-react"
 import "./App.css"
 
@@ -56,6 +59,33 @@ function RequireAuth({ children }) {
   return children
 }
 
+const OAUTH_ERRORS = { google_denied: "You cancelled the Google sign-in.", google_state: "The sign-in link expired. Please try again.", google_email: "Google didn't share an email address.", google: "Google sign-in failed. Please try again." }
+
+// Desktop only: the OAuth flow finishes in the system browser and comes back as welya://auth/callback or welya://integrations/callback
+function DeepLinkListener() {
+  const { exchangeDesktopCode } = useAuth()
+  const navigate = useNavigate()
+  React.useEffect(() => {
+    let unlisten = () => {}
+    listenDeepLinks((url) => {
+      const route = `${url.hostname}${url.pathname}`.replace(/\/+$/, "")
+      const p = url.searchParams
+      if (route === "auth/callback") {
+        const code = p.get("code")
+        if (!code) return toast.error("Sign-in didn't complete", { description: OAUTH_ERRORS[p.get("error")] ?? OAUTH_ERRORS.google })
+        exchangeDesktopCode(code)
+          .then(() => { toast.success("Signed in with Google"); navigate("/", { replace: true }) })
+          .catch((e) => toast.error("Sign-in didn't complete", { description: e.message }))
+      } else if (route === "integrations/callback") {
+        navigate(`/settings/integrations?${p}`, { replace: true })
+      }
+    }).then((fn) => { unlisten = fn })
+    return () => unlisten()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return null
+}
+
 // Blocks the shell until the first bootstrap payload arrives; shows a retry if the API is down
 function RequireData({ children }) {
   const { isLoading, isError, error, refetch, tasks } = useAppStore()
@@ -84,6 +114,7 @@ function App() {
         <AppStoreProvider>
           <TooltipProvider>
             <BrowserRouter>
+              <DeepLinkListener />
               <Routes>
                 <Route element={<AuthLayout />}>
                   <Route path="login" element={<LoginPage />} />

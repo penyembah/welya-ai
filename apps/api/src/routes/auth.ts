@@ -41,7 +41,7 @@ async function issueCode(userId: string, type: "verify" | "reset" | "email-chang
   return code
 }
 
-async function consumeCode(userId: string | null, type: "verify" | "reset" | "email-change", code: string) {
+async function consumeCode(userId: string | null, type: "verify" | "reset" | "email-change" | "desktop-login", code: string) {
   const conditions = [eq(schema.verificationCodes.type, type), eq(schema.verificationCodes.code, code), isNull(schema.verificationCodes.usedAt), gt(schema.verificationCodes.expiresAt, new Date().toISOString())]
   if (userId) conditions.push(eq(schema.verificationCodes.userId, userId))
   const [row] = await db.select().from(schema.verificationCodes).where(and(...conditions)).limit(1)
@@ -91,6 +91,16 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     const session = await rotateSession(app, req, reply)
     if (!session) return reply.unauthorized("Your session has expired. Please sign in again.")
     return { token: session.token, user: publicUser(session.user) }
+  })
+
+  // Desktop app: swap the one-time code from the welya://auth/callback deep link for a real session (sets the refresh cookie in the webview)
+  app.post("/auth/exchange", { config: LIMITS.login, schema: { body: z.object({ code: z.string().min(16).max(64) }) } }, async (req, reply) => {
+    const row = await consumeCode(null, "desktop-login", req.body.code)
+    if (!row) return reply.unauthorized("This sign-in link has expired. Please try again.")
+    const [user] = await db.select().from(schema.users).where(eq(schema.users.id, row.userId))
+    if (!user) return reply.unauthorized("Account not found.")
+    const token = await createSession(app, user, req, reply)
+    return { token, user: publicUser(user) }
   })
 
   app.post("/auth/logout", async (req, reply) => {

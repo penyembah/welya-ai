@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { api, tokenStore, refreshSession, API_URL } from "@/lib/api"
+import { isTauri, openExternal } from "@/lib/tauri"
 
 const AuthContext = React.createContext(null)
 
@@ -65,8 +66,9 @@ export function AuthProvider({ children }) {
   const resetPassword = ({ token: t, password }) => api.post("/auth/reset", { token: t, password }, { auth: false })
   const updateUser = (patch) => setUser((u) => ({ ...u, ...patch }))
 
-  // Google OAuth: the API redirects to Google and back to /auth/callback#token=…
-  const loginWithGoogle = () => window.location.assign(`${API_URL}/api/auth/google`)
+  // Google OAuth. Web: the API redirects to Google and back to /auth/callback#token=…
+  // Desktop: Google refuses embedded webviews, so the flow runs in the system browser and returns via welya://auth/callback?code=…
+  const loginWithGoogle = () => openExternal(`${API_URL}/api/auth/google${isTauri() ? "?client=desktop" : ""}`)
   const completeOAuth = async (t) => {
     tokenStore.set(t)
     try {
@@ -77,9 +79,10 @@ export function AuthProvider({ children }) {
       throw e
     }
   }
+  const exchangeDesktopCode = async (code) => establish(await api.post("/auth/exchange", { code }, { auth: false }))
 
   const value = React.useMemo(
-    () => ({ session: user, user, token, ready, isAuthenticated: !!token, login, register, verifyEmail, resendCode, requestPasswordReset, resetPassword, loginWithGoogle, completeOAuth, logout: signOut, updateUser }),
+    () => ({ session: user, user, token, ready, isAuthenticated: !!token, login, register, verifyEmail, resendCode, requestPasswordReset, resetPassword, loginWithGoogle, completeOAuth, exchangeDesktopCode, logout: signOut, updateUser }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [user, token, ready, signOut]
   )
