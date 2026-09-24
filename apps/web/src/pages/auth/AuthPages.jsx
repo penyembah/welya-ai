@@ -309,8 +309,13 @@ export function ForgotPasswordPage() {
   const { isSubmitting, errors } = form.formState
 
   const submit = async (values) => {
-    const res = await requestPasswordReset(values)
-    setSent({ email: values.email })
+    try {
+      const res = await requestPasswordReset(values)
+      setSent({ email: values.email })
+      toast.success("Reset link sent", { description: res?.devToken ? `Dev reset link: /reset-password?token=${res.devToken}` : `Check ${values.email} for the link. It expires in 30 minutes.` })
+    } catch (e) {
+      toast.error("Couldn't send the reset link", { description: e.message })
+    }
   }
 
   if (sent) {
@@ -485,10 +490,14 @@ export function VerifyEmailPage() {
   }
 
   const resend = async () => {
-    setCooldown(30)
-    const res = await resendCode({ email: emailParam })
-    if (res?.devCode) setHint(res.devCode)
-    toast.success("Code sent", { description: `A new code is on its way to ${emailParam}.` })
+    try {
+      const res = await resendCode({ email: emailParam })
+      setCooldown(30)
+      if (res?.devCode) setHint(res.devCode)
+      toast.success("Code sent", { description: `A new code is on its way to ${emailParam}.` })
+    } catch (e) {
+      toast.error("Couldn't resend the code", { description: e.message })
+    }
   }
 
   return (

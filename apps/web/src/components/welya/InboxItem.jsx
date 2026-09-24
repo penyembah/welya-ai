@@ -110,12 +110,12 @@ export function InboxItem({ item, selected, onSelect, className }) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => onSelect(item)}>Open</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => dispatch({ type: "inbox/set-status", id: item.id, status: item.status === "ignored" ? "unprocessed" : "ignored" })}>
+            <DropdownMenuItem onClick={() => { const restore = item.status === "ignored"; dispatch({ type: "inbox/set-status", id: item.id, status: restore ? "unprocessed" : "ignored" }); toast(restore ? "Moved back to review" : "Ignored", { description: item.subject }) }}>
               {item.status === "ignored" ? <UndoIcon /> : <EyeOffIcon />}
               {item.status === "ignored" ? "Restore" : "Ignore"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => dispatch({ type: "inbox/set-status", id: item.id, status: item.status, patch: { importance: item.importance === "high" ? "normal" : "high" } })}>
+            <DropdownMenuItem onClick={() => { const high = item.importance !== "high"; dispatch({ type: "inbox/set-status", id: item.id, status: item.status, patch: { importance: high ? "high" : "normal" } }); toast(high ? "Marked as important" : "Importance removed", { description: item.subject }) }}>
               <StarIcon /> {item.importance === "high" ? "Remove importance" : "Mark important"}
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -366,7 +366,7 @@ export function AIActionPanel({ item, onDone, className }) {
             </div>
           </>
         ) : (
-          <Button variant="outline" className="w-full" onClick={() => dispatch({ type: "inbox/set-status", id: item.id, status: "unprocessed" })}>
+          <Button variant="outline" className="w-full" onClick={() => { dispatch({ type: "inbox/set-status", id: item.id, status: "unprocessed" }); toast("Moved back to review", { description: item.subject }) }}>
             <UndoIcon data-icon="inline-start" /> Move back to review
           </Button>
         )}

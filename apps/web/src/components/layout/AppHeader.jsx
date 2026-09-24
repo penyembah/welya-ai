@@ -1,4 +1,5 @@
 import * as React from "react"
+import { toast } from "sonner"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { useTheme } from "next-themes"
 import { SidebarTrigger } from "@/components/ui/sidebar"
@@ -145,7 +146,7 @@ export function AppHeader() {
               ))}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => dispatch({ type: "notification/read-all" })} disabled={!unread.length}>
+            <DropdownMenuItem onClick={() => { dispatch({ type: "notification/read-all" }); toast("All notifications marked as read") }} disabled={!unread.length}>
               <CheckCheckIcon /> Mark all as read
             </DropdownMenuItem>
             <DropdownMenuItem render={<Link to="/notifications" />}>View all notifications</DropdownMenuItem>

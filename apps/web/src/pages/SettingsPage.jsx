@@ -237,10 +237,13 @@ function EmailDialog({ open, onOpenChange, user }) {
   }, 0)
 
   const cancel = () => run(async () => {
-    await api.delete("/me/email")
-    refetch?.()
-    setStep("request")
-    setCode("")
+    try {
+      await api.delete("/me/email")
+      refetch?.()
+      setStep("request")
+      setCode("")
+      toast("Email change cancelled")
+    } catch (e) { toast.error("Couldn't cancel the email change", { description: e.message }) }
   }, 0)
 
   return (
@@ -487,7 +490,7 @@ export function PrivacySettings() {
       <Card className="border-destructive/30">
         <CardHeader><CardTitle>Your data</CardTitle><CardDescription>Export or delete everything Welya has stored.</CardDescription></CardHeader>
         <CardFooter className="justify-between gap-2">
-          <Button variant="outline" disabled={exporting} onClick={() => runExport(async () => { await downloadExport(); toast.success("Export downloaded") }, 0)}>{exporting && <Spinner data-icon="inline-start" />} Export data</Button>
+          <Button variant="outline" disabled={exporting} onClick={() => runExport(async () => { try { await downloadExport(); toast.success("Export downloaded") } catch (e) { toast.error("Couldn't export your data", { description: e.message }) } }, 0)}>{exporting && <Spinner data-icon="inline-start" />} Export data</Button>
           <Button variant="destructive" onClick={() => setConfirm(true)}>Delete account</Button>
         </CardFooter>
       </Card>

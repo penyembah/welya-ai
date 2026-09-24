@@ -45,7 +45,7 @@ http.interceptors.response.use(
     if (!error.response) {
       return Promise.reject(new ApiError("Can't reach the Welya server. Is the API running?", 0))
     }
-    const { status, data, config } = error.response
+    const { status, data, config, headers } = error.response
     if (status === 401 && !config?.skipAuth && !config?._retry && !config?.url?.endsWith("/auth/refresh")) {
       config._retry = true
       try {
@@ -56,6 +56,11 @@ http.interceptors.response.use(
         tokenStore.clear()
         window.dispatchEvent(new Event("welya:unauthorized"))
       }
+    }
+    if (status === 429) {
+      const secs = Number(headers?.["retry-after"]) || 60
+      const wait = secs >= 120 ? `${Math.ceil(secs / 60)} minutes` : secs >= 60 ? "a minute" : `${secs} seconds`
+      return Promise.reject(new ApiError(`Too many attempts. Please wait ${wait} and try again.`, status, { ...data, code: "rate_limited" }))
     }
     return Promise.reject(new ApiError(data?.message ?? error.message, status, data))
   }

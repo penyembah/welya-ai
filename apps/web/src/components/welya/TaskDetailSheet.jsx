@@ -53,20 +53,24 @@ export function TaskDetailSheet({ taskId, open, onOpenChange }) {
 
   // Ask the planner for the next free slot (today first, then the coming days) and book this task into it
   const scheduleTime = async () => {
-    for (let d = 0; d < 7; d++) {
-      const date = addDays(new Date(), d)
-      const { days } = await plan.mutateAsync({ scope: "day", date: date.toISOString() })
-      const slot = days[0]?.slots.find((s) => new Date(s.end) - new Date(s.start) >= 60 * 60 * 1000 && new Date(s.end) > new Date())
-      if (slot) {
-        const len = Math.min(120, Math.max(30, (task.estimatedMinutes || 60) * (1 - (task.progress || 0) / 100)))
-        const start = new Date(Math.max(new Date(slot.start), new Date()))
-        const end = new Date(start.getTime() + len * 60000)
-        dispatch({ type: "event/add", event: { title: `Work on: ${task.title}`, type: "work-session", start: start.toISOString(), end: end.toISOString(), courseId: task.courseId, taskId: task.id, aiPlanned: true } })
-        toast.success("Work session scheduled", { description: fmtDateTime(start.toISOString()) })
-        return
+    try {
+      for (let d = 0; d < 7; d++) {
+        const date = addDays(new Date(), d)
+        const { days } = await plan.mutateAsync({ scope: "day", date: date.toISOString() })
+        const slot = days[0]?.slots.find((s) => new Date(s.end) - new Date(s.start) >= 60 * 60 * 1000 && new Date(s.end) > new Date())
+        if (slot) {
+          const len = Math.min(120, Math.max(30, (task.estimatedMinutes || 60) * (1 - (task.progress || 0) / 100)))
+          const start = new Date(Math.max(new Date(slot.start), new Date()))
+          const end = new Date(start.getTime() + len * 60000)
+          dispatch({ type: "event/add", event: { title: `Work on: ${task.title}`, type: "work-session", start: start.toISOString(), end: end.toISOString(), courseId: task.courseId, taskId: task.id, aiPlanned: true } })
+          toast.success("Work session scheduled", { description: fmtDateTime(start.toISOString()) })
+          return
+        }
       }
+      toast.info("No free slot found this week.")
+    } catch (e) {
+      toast.error("Couldn't find a slot", { description: e.message })
     }
-    toast.info("No free slot found this week.")
   }
 
   return (
@@ -86,7 +90,7 @@ export function TaskDetailSheet({ taskId, open, onOpenChange }) {
         <ScrollArea className="min-h-0 flex-1">
           <div className="space-y-5 p-4">
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant={done ? "outline" : "default"} onClick={() => dispatch({ type: "task/toggle-done", id: task.id })}>
+              <Button size="sm" variant={done ? "outline" : "default"} onClick={() => { dispatch({ type: "task/toggle-done", id: task.id }); toast.success(done ? "Task reopened" : "Task completed", { description: task.title }) }}>
                 {done ? <UndoIcon data-icon="inline-start" /> : <CheckIcon data-icon="inline-start" />}
                 {done ? "Mark as not done" : "Mark as done"}
               </Button>

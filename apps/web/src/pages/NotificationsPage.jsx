@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useNavigate } from "react-router-dom"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -36,7 +37,7 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Notifications" description="Deadlines, class reminders, inbox updates and Welya's suggestions." actions={<Button variant="outline" disabled={!unread} onClick={() => dispatch({ type: "notification/read-all" })}><CheckCheckIcon data-icon="inline-start" /> Mark all as read</Button>} />
+      <PageHeader title="Notifications" description="Deadlines, class reminders, inbox updates and Welya's suggestions." actions={<Button variant="outline" disabled={!unread} onClick={() => { dispatch({ type: "notification/read-all" }); toast("All notifications marked as read") }}><CheckCheckIcon data-icon="inline-start" /> Mark all as read</Button>} />
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <Tabs value={filter} onValueChange={setFilter}>
           <TabsList className="flex-wrap">
